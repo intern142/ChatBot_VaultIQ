@@ -8,7 +8,6 @@ Create Date: 2026-09-14
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
 
 revision: str = "001_initial"
 down_revision: Union[str, None] = None
@@ -17,38 +16,41 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create ENUM types
     op.execute("CREATE TYPE tenant_status AS ENUM ('active', 'suspended', 'offboarding', 'purged')")
     op.execute("CREATE TYPE user_role AS ENUM ('super_admin', 'client_admin', 'employee')")
 
-    # Create tenants table
-    op.create_table(
-        "tenants",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("short_code", sa.String(50), unique=True, nullable=False, index=True),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("status", sa.Enum("active", "suspended", "offboarding", "purged", name="tenant_status"), nullable=False, server_default="active"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-    )
+    op.execute("""
+        CREATE TABLE tenants (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            short_code VARCHAR(50) UNIQUE NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            status tenant_status NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
-    # Create users table
-    op.create_table(
-        "users",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("email", sa.String(255), nullable=False),
-        sa.Column("password_hash", sa.String(255), nullable=False),
-        sa.Column("role", sa.Enum("super_admin", "client_admin", "employee", name="user_role"), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint("tenant_id", "email", name="uq_user_email_per_tenant"),
-    )
+    op.execute("""
+        CREATE TABLE users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+            email VARCHAR(255) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            role user_role NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (tenant_id, email),
+            CONSTRAINT chk_tenant_required CHECK (
+                (role = 'super_admin' AND tenant_id IS NULL) OR
+                (role != 'super_admin' AND tenant_id IS NOT NULL)
+            )
+        )
+    """)
 
-    # Enable RLS on users table
+    op.execute("CREATE INDEX idx_users_tenant_id ON users(tenant_id)")
+
     op.execute("ALTER TABLE users ENABLE ROW LEVEL SECURITY")
 
-    # Create RLS policy
     op.execute("""
         CREATE POLICY tenant_isolation ON users
         USING (tenant_id = current_setting('app.current_tenant')::uuid)
@@ -56,16 +58,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop RLS policy
     op.execute("DROP POLICY IF EXISTS tenant_isolation ON users")
-
-    # Disable RLS
     op.execute("ALTER TABLE users DISABLE ROW LEVEL SECURITY")
-
-    # Drop tables
     op.drop_table("users")
     op.drop_table("tenants")
-
-    # Drop ENUM types
     op.execute("DROP TYPE IF EXISTS user_role")
     op.execute("DROP TYPE IF EXISTS tenant_status")

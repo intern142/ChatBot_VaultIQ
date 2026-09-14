@@ -3,8 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
-    DATABASE_URL_SYNC: str = "postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+    DATABASE_URL: str = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5433/vaultiq"
+    DATABASE_URL_SYNC: str = "postgresql://vaultiq:vaultiq_secret@localhost:5433/vaultiq"
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24

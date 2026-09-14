@@ -1,9 +1,13 @@
 import pytest
 import uuid
+import psycopg2
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.config import get_settings
+
+settings = get_settings()
 
 
 @pytest.mark.asyncio
@@ -93,10 +97,10 @@ async def test_super_admin_without_tenant(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_tenant_unique_short_code(db_session: AsyncSession):
     tenant1 = Tenant(short_code="ACME", name="Acme Corp")
-    tenant2 = Tenant(short_code="ACME", name="Another Acme")
     db_session.add(tenant1)
     await db_session.commit()
 
+    tenant2 = Tenant(short_code="ACME", name="Another Acme")
     db_session.add(tenant2)
     with pytest.raises(Exception):
         await db_session.commit()
@@ -129,25 +133,43 @@ async def test_user_unique_email_per_tenant(db_session: AsyncSession):
         await db_session.commit()
 
 
-@pytest.mark.asyncio
-async def test_rls_blocks_cross_tenant_read(db_session: AsyncSession):
-    tenant1 = Tenant(short_code="TENANT1", name="Tenant One")
-    tenant2 = Tenant(short_code="TENANT2", name="Tenant Two")
-    db_session.add_all([tenant1, tenant2])
-    await db_session.commit()
-    await db_session.refresh(tenant1)
-    await db_session.refresh(tenant2)
+def test_rls_blocks_cross_tenant_read():
+    admin_url = settings.DATABASE_URL_SYNC
+    app_url = settings.DATABASE_URL_SYNC.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret")
 
-    user1 = User(
-        tenant_id=tenant1.id,
-        email="user@tenant1.com",
-        password_hash="hash",
-        role="employee",
+    admin_conn = psycopg2.connect(admin_url)
+    admin_cur = admin_conn.cursor()
+    admin_cur.execute("TRUNCATE users, tenants CASCADE")
+    admin_conn.commit()
+
+    admin_cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TENANT1", "Tenant One"))
+    tenant1_id = admin_cur.fetchone()[0]
+
+    admin_cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TENANT2", "Tenant Two"))
+    tenant2_id = admin_cur.fetchone()[0]
+
+    admin_cur.execute(
+        "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s)",
+        (str(tenant1_id), "user@tenant1.com", "hash", "employee"),
     )
-    db_session.add(user1)
-    await db_session.commit()
+    admin_conn.commit()
+    admin_cur.close()
+    admin_conn.close()
 
-    await db_session.execute(text(f"SET app.current_tenant = '{tenant2.id}'"))
-    result = await db_session.execute(text("SELECT * FROM users"))
-    rows = result.fetchall()
-    assert len(rows) == 0
+    conn = psycopg2.connect(app_url)
+    cur = conn.cursor()
+
+    cur.execute("SELECT set_config('app.current_tenant', %s, true)", (str(tenant2_id),))
+    cur.execute("SELECT * FROM users WHERE tenant_id IS NOT NULL")
+    rows = cur.fetchall()
+    assert len(rows) == 0, f"RLS failed: expected 0 rows, got {len(rows)}"
+    conn.commit()
+
+    cur.execute("SELECT set_config('app.current_tenant', %s, true)", (str(tenant1_id),))
+    cur.execute("SELECT * FROM users WHERE tenant_id IS NOT NULL")
+    rows = cur.fetchall()
+    assert len(rows) == 1, f"RLS failed: expected 1 row, got {len(rows)}"
+    conn.commit()
+
+    cur.close()
+    conn.close()
