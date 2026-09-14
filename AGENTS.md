@@ -3,7 +3,28 @@
 ## Project State
 - Current branch: vq-101-tenant-model
 - Current task: VQ-101 — Tenant data model and migration
-- Status: In progress
+- Status: In progress — BLOCKED (Python not installed)
+
+## Blockers
+- Python 3.11 not installed on system
+- Admin password required to install Python
+- Admin person unavailable — will install when available
+- PostgreSQL container is running (vaultiq-db)
+
+## Completed (VQ-101)
+- Project structure created
+- SQLAlchemy models (Tenant, User)
+- Alembic migration with RLS policies
+- Tests written (8 tests)
+- Committed and pushed to branch vq-101-tenant-model
+
+## Remaining (VQ-101)
+- Install Python 3.11 (need admin)
+- pip install dependencies
+- Run alembic upgrade head
+- Run pytest
+- Verify on live container
+- Merge to main after approval
 
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
