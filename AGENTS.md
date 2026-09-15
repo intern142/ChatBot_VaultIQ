@@ -131,3 +131,8 @@ alembic/
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+
+## Tooling
+- `winget install GitHub.cli` — **done**
+- `gh auth login` — **pending** (run locally to enable gh CLI access)
+- `gh repo view intern142/ChatBot_VaultIQ` — **pending** (test after auth)
