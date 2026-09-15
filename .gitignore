@@ -1,0 +1,21 @@
+# Exclude from version control
+container/
+containers/
+run-live.ps1
+gate4-check/
+Sprint1/
+SPRINT1/
+.dockerignore
+dockerignore
+
+# Root-level logs
+*.log
+
+# Frontend build outputs only (keep source)
+frontend/node_modules/
+frontend/dist/
+frontend/screenshots/
+frontend/screenshots-container/
+frontend/*.log
+frontend/build.log
+frontend/build.err
