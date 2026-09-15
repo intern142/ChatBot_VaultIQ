@@ -3,7 +3,7 @@
 ## Project State
 - Current branch: vq-105-tenant-login
 - Current task: VQ-105 — Tenant-scoped login and session tokens
-- Status: In progress (tests passing, ready for gates)
+- Status: In progress (tests passing, CI pipeline added, ready for gates)
 
 ## Blockers
 - None
@@ -36,6 +36,8 @@
 - All 26 tests passing (18 auth + 8 tenant)
 - Fix asyncpg event loop issue in tests (httpx.AsyncClient)
 - Fix super_admin login to skip tenant lookup
+- **CI pipeline added** (`.github/workflows/test.yml`)
+- **psycopg2-binary added** for alembic migrations in CI
 
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
@@ -43,10 +45,11 @@
 - ORM: SQLAlchemy 2.0 (async)
 - Migrations: Alembic
 - Auth: PyJWT (VQ-105)
+- CI: GitHub Actions (PostgreSQL service, alembic, pytest)
 
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (COMPLETE)
-- [x] VQ-105 — Tenant-scoped login and session tokens (TESTS PASSING — ready for gates)
+- [x] VQ-105 — Tenant-scoped login and session tokens (TESTS PASSING — CI pipeline ready)
 - [ ] VQ-103 — Tenant context on every request (depends on VQ-105)
 - [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
 
@@ -118,4 +121,13 @@ alembic/
     002_add_sessions.py — Sessions table + lockout columns
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
+  workflows/
+    test.yml         — CI pipeline (PostgreSQL, alembic, pytest)
 ```
+
+## CI Pipeline
+**File:** `.github/workflows/test.yml`
+- Triggers: push to `vq-105-tenant-login`, PR to `main` or `vq-105-tenant-login`
+- Services: `pgvector/pgvector:pg16` on port 5432
+- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
+- Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
