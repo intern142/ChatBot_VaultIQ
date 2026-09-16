@@ -343,14 +343,34 @@ input:disabled {
 }
 
 .form-error {
-  background: hsl(0 84% 60% / 0.08);
+  background: hsl(0 84% 60% / 0.12);
   color: var(--destructive);
-  border: 1px solid hsl(0 84% 60% / 0.35);
-  padding: 0.65rem 0.85rem;
+  border: 1px solid hsl(0 84% 60% / 0.45);
+  border-left: 4px solid var(--destructive);
+  padding: 0.75rem 1rem;
   border-radius: var(--radius);
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 600;
   margin-bottom: 1rem;
+  animation: errorSlideIn 0.2s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+
+.form-error:hover {
+  background: hsl(0 84% 60% / 0.18);
+  border-color: hsl(0 84% 60% / 0.7);
+  transform: translateX(2px);
+}
+
+@keyframes errorSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* ---- Auth (Register) ---- */

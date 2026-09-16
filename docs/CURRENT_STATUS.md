@@ -1,7 +1,7 @@
 # VaultIQ — Current Status
 
 **Branch:** `vq-fe2-login_page`
-**Last commit:** `35438ae` (FE2-12) + subsequent mock-backend commits
+**Last commit:** `7a28b0e` (FE2-14)
 **Date:** 2026-09-16
 
 ---
@@ -16,7 +16,7 @@
 - Full responsive: desktop two-column, mobile stacks branding above form
 - Monochrome proof-grid design, no external assets, works offline
 
-### Mock Backend & API Layer (this session)
+### Mock Backend & API Layer (FE2-13)
 - **Single config switch** (`src/api/config.ts`): `VITE_API_MODE=mock|real` (default `mock`)
 - **Shared types & errors** (`src/api/types.ts`): `LoginRequest`, `RegisterRequest`, `LoginResponse`, `RefreshResponse`, `ApiError`
 - **Real HTTP driver** (`src/api/real.ts`): fetch wrapper with `Authorization: Bearer` + `X-Refresh-Token` headers from `TokenStore`
@@ -36,6 +36,16 @@
   - `src/api/__tests__/authFlow.test.jsx` — 9 tests: AuthContext + Login flows (success, wrong creds, lockout, register, empty fields)
 - **Config docs**: `frontend/.env.example` + `.gitignore` for `.env*`
 
+### Radio Alignment Fix (FE2-14)
+- Added `.role-radio-group` / `.role-radio` CSS for inline radio + label alignment
+- Flexbox centering (`align-items: center`, `gap: 0.45rem`) — checkbox and text now on single line
+- Grid layout (3 columns), hover/active/checked states match design
+
+### Role-Based Redirects
+- Employee → `/employee/dashboard`
+- Client Admin → `/admin/dashboard`
+- Super Admin → `/super/dashboard` (changed from `/super/tenants`)
+
 ---
 
 ## 2. What remains
@@ -47,7 +57,7 @@
 
 ---
 
-## 3. Files changed (this session)
+## 3. Files changed
 
 ### New files
 | File | Purpose |
@@ -70,6 +80,8 @@
 | `src/api/auth.ts` | Rewired as facade; re-exports types + config |
 | `src/pages/Login.jsx` | Uses AuthContext `error` + local `localError` for empty fields |
 | `src/components/Icons.jsx` | Added `EyeIcon` / `EyeOffIcon` for password toggle |
+| `src/App.jsx` | Super Admin default redirect → `/super/dashboard` |
+| `src/index.css` | Added `.role-radio-group` / `.role-radio` styles (FE2-14) |
 | `frontend/.gitignore` | Added `.env` / `.env.*` (keep `.env.example`) |
 
 ---
