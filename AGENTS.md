@@ -108,9 +108,9 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-105-tenant-login
+- Current branch: vq-103-tenant-middleware
 - Current task: VQ-103 — Tenant context on every request
-- Status: **VQ-105 Gate 6 complete** — 26/26 tests pass, live container verified, JWT claims captured for all 3 roles. VQ-103 Gate 1: Approach note drafted.
+- Status: **VQ-105 Gate 6 complete**. VQ-103 Gate 1 (Approach note), Gate 2 (Implementation), Gate 3 (Tests) complete. Gate 4 (Self-review) pending.
 
 ## Blockers
 - None
@@ -159,6 +159,19 @@ We sell this to many companies at once from one installation. Each company is a 
   - **Client Admin** (org_code=ACME): `sub=<user_id>`, `role=client_admin`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
   - **Employee** (org_code=ACME): `sub=<user_id>`, `role=employee`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
 
+### VQ-103 — Tenant context on every request
+- `set_tenant_context` helper in `app/database.py`
+- `get_current_user_with_tenant` dependency in `app/auth/dependencies.py`
+- Suspended/offboarding tenant check in login endpoint (`app/routes/auth.py`)
+- 5 new tests: tampered token, cross-tenant 404, injected tenant_id ignored, suspended tenant blocked, super_admin bypass
+- Gate 1: Approach note drafted (reviewer approval pending)
+- Gate 2: Implementation complete (commit 4aaf703)
+- Gate 3: 5 tests written, all 31 tests pass (commit 87af5ff)
+- Gate 4: Self-review pending
+- Gate 5: Pending (reviewer approval)
+- Gate 6: Pending (live container verify)
+- Gate 7: Pending (demo)
+
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
 - Database: PostgreSQL 16 (Docker: vaultiq-db, port 5433)
@@ -202,12 +215,12 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
-- [ ] VQ-103 — Tenant context on every request (Gate 1: Approach note drafted)
+- [ ] VQ-103 — Tenant context on every request (Gates 1-3 complete; Gate 4 pending)
 - [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
 
 ## Task Dependency Chain
 ```
-VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 (Gate 1) → VQ-104
+VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 (Gates 1-3) → VQ-104
 ```
 
 ## Key Decisions
