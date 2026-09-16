@@ -134,5 +134,5 @@ alembic/
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
-- `gh auth login` — **pending** (run locally to enable gh CLI access)
-- `gh repo view intern142/ChatBot_VaultIQ` — **pending** (test after auth)
+- `gh auth login` — **done** (authenticated as intern142, HTTPS protocol)
+- `gh repo view intern142/ChatBot_VaultIQ` — **done** (repo access verified)
