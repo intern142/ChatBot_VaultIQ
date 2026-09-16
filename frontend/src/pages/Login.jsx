@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LockoutBanner } from '../components/LockoutBanner';
+import { LockoutBanner, LockoutWarning } from '../components/LockoutBanner';
 import { LogoMark, EyeIcon, EyeOffIcon } from '../components/Icons';
 
 export default function Login() {
@@ -9,7 +9,7 @@ export default function Login() {
   const [localError, setLocalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login, isLockedOut, lockoutUntil, error, clearError } = useAuth();
+  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get('next') || '/';
@@ -78,6 +78,7 @@ export default function Login() {
             </div>
 
             <LockoutBanner lockoutUntil={isLockedOut ? lockoutUntil : 0} onClose={clearError} />
+            <LockoutWarning attempts={failedAttempts} maxAttempts={5} onClose={clearError} />
 
             <form onSubmit={handleSubmit} noValidate>
               <div className="form-group">

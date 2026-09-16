@@ -30,3 +30,25 @@ export function LockoutBanner({ lockoutUntil, onClose }) {
     </div>
   );
 }
+
+export function LockoutWarning({ attempts, maxAttempts = 5, onClose }) {
+  if (attempts < 2 || attempts >= maxAttempts) return null;
+  
+  const remaining = maxAttempts - attempts;
+  
+  return (
+    <div className="lockout-warning" role="alert">
+      <span>
+        {remaining} attempt{remaining !== 1 ? 's' : ''} remaining before account lockout.
+      </span>
+      <button 
+        type="button" 
+        className="lockout-warning-close" 
+        onClick={onClose}
+        aria-label="Dismiss warning"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
