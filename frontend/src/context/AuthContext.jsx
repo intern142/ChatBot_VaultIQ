@@ -130,13 +130,13 @@ export function AuthProvider({ children }) {
           setLockoutUntil(until);
           localStorage.setItem('vaultiq_lockout_until', until.toString());
         }
-        setError('Invalid organization code, email, or password');
+        setError('Invalid credentials');
       } else {
         // Token expired/revoked during authenticated request
         refreshAccessToken().catch(() => {});
       }
     } else {
-      setError('An unexpected error occurred');
+      setError('Invalid credentials');
     }
   }, [failedAttempts, refreshAccessToken]);
 
