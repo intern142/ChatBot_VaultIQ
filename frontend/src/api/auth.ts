@@ -1,30 +1,19 @@
-// FE2-1: auth API client (swap to real backend later)
-export interface LoginRequest { orgCode: string; username: string; email: string; password: string; userType: string }
-export interface RegisterRequest extends LoginRequest { role: string }
-export interface LoginResponse { 
-  accessToken: string; 
-  refreshToken: string; 
-  user: { name: string; role: string; organization: string; email: string } 
-}
-export interface RefreshResponse { accessToken: string; refreshToken: string }
+/*
+ * Common API layer facade.
+ *
+ * Every screen talks to `authApi` from here — never to the mock or the real
+ * backend directly. The active driver is chosen once from `src/api/config.ts`:
+ *
+ *   VITE_API_MODE=mock (default) → in-browser mock backend
+ *   VITE_API_MODE=real           → HTTP calls to VITE_API_BASE
+ *
+ * UI code is completely unaware of which backend is active.
+ */
+import { isMockMode } from './config';
+import { mockAuthApi } from './mock';
+import { realAuthApi } from './real';
 
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+export const authApi = isMockMode ? mockAuthApi : realAuthApi;
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error('LOGIN_FAILED');
-  return res.json();
-}
-
-export const authApi = {
-  login: (data: LoginRequest) => post<LoginResponse>('/auth/login', data),
-  register: (data: RegisterRequest) => post<LoginResponse>('/auth/register', data),
-  refresh: () => post<RefreshResponse>('/auth/refresh', {}),
-  logout: () => post<void>('/auth/logout', {}),
-  verify: () => post<{ ok: true }>('/auth/verify', {}),
-};
+export { API_MODE, API_BASE, isMockMode } from './config';
+export * from './types';

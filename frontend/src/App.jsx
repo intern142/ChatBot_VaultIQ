@@ -20,7 +20,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 const ROLE_HOME = {
   employee: '/employee/dashboard',
   'client-admin': '/admin/dashboard',
-  'super-admin': '/super/tenants',
+  'super-admin': '/super/dashboard',
 };
 
 function AppRoutes() {
@@ -29,7 +29,7 @@ function AppRoutes() {
   const defaultRedirect = {
     employee: '/employee/dashboard',
     'client-admin': '/admin/dashboard',
-    'super-admin': '/super/tenants',
+    'super-admin': '/super/dashboard',
   };
 
   return (
