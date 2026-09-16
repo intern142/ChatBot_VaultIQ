@@ -15,12 +15,15 @@ export default function Login() {
   const next = searchParams.get('next') || '/';
 
   useEffect(() => {
-    if (!isLockedOut) clearError();
-    setLocalError('');
-  }, [isLockedOut, clearError]);
+    if (!isLockedOut) {
+      setLocalError('');
+    }
+  }, [isLockedOut]);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    if (localError) setLocalError('');
+    if (error) clearError();
   };
 
   const handleSubmit = async (e) => {
