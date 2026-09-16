@@ -1,5 +1,5 @@
 // FE2-1: auth API client (swap to real backend later)
-export interface LoginRequest { orgCode: string; email: string; password: string }
+export interface LoginRequest { orgCode: string; username: string; email: string; password: string; userType: string }
 export interface RegisterRequest extends LoginRequest { role: string }
 export interface LoginResponse { 
   accessToken: string; 

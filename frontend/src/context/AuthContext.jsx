@@ -140,11 +140,11 @@ export function AuthProvider({ children }) {
     }
   }, [failedAttempts, refreshAccessToken]);
 
-  const login = useCallback(async (orgCode, email, password) => {
+  const login = useCallback(async (orgCode, username, email, password, userType) => {
     setError(null);
     setIsLoading(true);
     try {
-      const res = await authApi.login({ orgCode, email, password });
+      const res = await authApi.login({ orgCode, username, email, password, userType });
       TokenStore.setAccess(res.accessToken);
       TokenStore.setRefresh(res.refreshToken);
       const newUser = res.user;

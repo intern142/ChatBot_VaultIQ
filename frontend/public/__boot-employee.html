@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Boot Employee</title></head>
+<body>
+<script>
+localStorage.setItem('vaultiq_role', 'employee');
+localStorage.setItem('vaultiq_user', JSON.stringify({
+  name: 'Demo Employee', role: 'employee',
+  organization: 'Acme Corp', email: 'emp@acme.com'
+}));
+location.replace('/employee/dashboard');
+</script>
+</body>
+</html>
