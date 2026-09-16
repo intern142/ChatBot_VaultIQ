@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
+    MAX_FAILED_ATTEMPTS: int = 5
+    LOCKOUT_DURATION_MINUTES: int = 15
     APP_ENV: str = "development"
     APP_PORT: int = 8000
 

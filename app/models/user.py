@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
@@ -23,6 +23,8 @@ class User(Base):
         Enum("super_admin", "client_admin", "employee", name="user_role"),
         nullable=False,
     )
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()

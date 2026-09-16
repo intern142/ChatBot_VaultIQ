@@ -1,53 +1,138 @@
 # VaultIQ Backend
 
 ## Project State
-- Current branch: main
-- Current task: VQ-101 — Tenant data model and migration
-- Status: COMPLETE ✅
+- Current branch: vq-105-tenant-login
+- Current task: VQ-105 — Tenant-scoped login and session tokens
+- Status: In progress (tests passing, CI pipeline added, ready for gates)
 
-## Gate 3 Verification (2026-09-15)
-- Migration up/down tested on seeded data
-- `alembic upgrade head` → `alembic downgrade base` → `alembic upgrade head` ✅
-- Model test: missing tenant_id fails for non-super_admin ✅
-- Full test suite: **8/8 passed** ✅
-- RLS cross-tenant read blocked ✅
-- Post-downgrade re-apply: **8/8 passed** ✅
+## Blockers
+- None
 
-```
-tests/test_tenant.py::test_create_tenant PASSED
-tests/test_tenant.py::test_create_user_with_tenant PASSED
-tests/test_tenant.py::test_create_user_without_tenant_fails PASSED
-tests/test_tenant.py::test_create_user_with_fake_tenant_fails PASSED
-tests/test_tenant.py::test_super_admin_without_tenant PASSED
-tests/test_tenant.py::test_tenant_unique_short_code PASSED
-tests/test_tenant.py::test_user_unique_email_per_tenant PASSED
-tests/test_tenant.py::test_rls_blocks_cross_tenant_read PASSED
-======================== 8 passed, 1 warning in 2.58s ========================
-```
+## Completed
+### VQ-101 — Tenant data model and migration ✅
+- Project structure created
+- SQLAlchemy models (Tenant, User)
+- Alembic migration with RLS policies
+- Tests written (8 tests)
+- Committed and pushed to branch vq-101-tenant-model
+- Gate 3: Migration up/down verified, 8/8 tests pass
+- Gate 4: Review checklist ticked, PR opened
+- Gate 6: Live container verified, 8/8 tests pass
+- Gate 5: Pending (reviewer approval)
+- Gate 7: Pending (demo in sprint review)
+
+### VQ-105 — Tenant-scoped login and session tokens (tests passing)
+- Login endpoint (POST /auth/login) with organisation_code, email, password
+- Super admin login (organisation_code=SUPER, no tenant lookup)
+- JWT access tokens with tenant_id, role, session_id
+- Token refresh (POST /auth/refresh) with session rotation
+- Token revocation on logout (POST /auth/logout)
+- Account lockout after 5 failed attempts (15 min duration)
+- 200ms constant response time on all auth outcomes
+- Uniform error messages (no user enumeration)
+- Session model for token tracking (migration 002)
+- Lockout columns on users table (migration 002)
+- 18 auth tests (password strength, login, lockout, token, revocation)
+- All 26 tests passing (18 auth + 8 tenant)
+- Fix asyncpg event loop issue in tests (httpx.AsyncClient)
+- Fix super_admin login to skip tenant lookup
+- **CI pipeline added** (`.github/workflows/test.yml`)
+- **psycopg2-binary added** for alembic migrations in CI
 
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
-- Database: PostgreSQL 16
-- ORM: SQLAlchemy 2.0
+- Database: PostgreSQL 16 (Docker: vaultiq-db, port 5433)
+- ORM: SQLAlchemy 2.0 (async)
 - Migrations: Alembic
-- Auth: PyJWT (for later tasks)
+- Auth: PyJWT (VQ-105)
+- CI: GitHub Actions (PostgreSQL service, alembic, pytest)
 
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (COMPLETE)
-- [ ] VQ-103 — Tenant context on every request
-- [ ] VQ-104 — Per-tenant document storage
-- [ ] VQ-105 — Tenant-scoped login and session tokens
+- [x] VQ-105 — Tenant-scoped login and session tokens (TESTS PASSING — CI pipeline ready)
+- [ ] VQ-103 — Tenant context on every request (depends on VQ-105)
+- [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
+
+## Task Dependency Chain
+```
+VQ-101 ✅ → VQ-105 ✅ → VQ-103 (next) → VQ-104
+```
 
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
 - Using pgvector for vector search (future)
 - FastEmbed for embeddings (future)
 - RLS at database level for tenant isolation
+- VQ-105 before VQ-103 (dependency chain)
+- Super admin login uses organisation_code=SUPER (no tenant)
+- Password strength: min 8 chars, upper, lower, digit, special
+- Lockout: 5 failed attempts → 15 min lockout
 
 ## Database Tables
 - tenants: id, short_code, name, status, timestamps
-- users: id, tenant_id (FK), email, password_hash, role, timestamps
+- users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
+- sessions: id, user_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
 
 ## RLS Policy
 - Enabled on users table
 - Policy: tenant_id = current_setting('app.current_tenant')::uuid
+
+## Auth Endpoints
+- POST /auth/login — Login with organisation_code, email, password → JWT token
+- POST /auth/refresh — Refresh token (requires valid Bearer token)
+- POST /auth/logout — Revoke session (requires valid Bearer token)
+- GET /health — Health check (no auth required)
+
+## Project Structure
+```
+app/
+  __init__.py
+  config.py          — Settings (pydantic-settings)
+  database.py        — Async SQLAlchemy engine, session, Base
+  main.py            — FastAPI app with routers
+  auth/
+    __init__.py
+    password.py      — bcrypt hash/verify + strength validation
+    jwt.py           — create_access_token, decode_token (PyJWT)
+    dependencies.py  — get_current_user FastAPI dependency
+  models/
+    __init__.py
+    base.py
+    tenant.py        — Tenant model
+    user.py          — User model
+    session.py       — Session model (token tracking, revocation)
+  routes/
+    __init__.py
+    auth.py          — Login, refresh, logout endpoints
+  schemas/
+    __init__.py
+    auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
+    tenant.py        — TenantCreate, TenantResponse
+    user.py          — UserCreate, UserResponse
+tests/
+  __init__.py
+  conftest.py        — DB fixtures (async engine, session, db_conn)
+  test_tenant.py     — 8 tests for VQ-101
+  test_auth.py       — 18 tests for VQ-105
+alembic/
+  env.py
+  versions/
+    001_initial.py   — Tenants + Users + RLS migration
+    002_add_sessions.py — Sessions table + lockout columns
+.github/
+  CHECKLIST.md       — Review checklist and common mistakes
+  workflows/
+    test.yml         — CI pipeline (PostgreSQL, alembic, pytest)
+```
+
+## CI Pipeline
+**File:** `.github/workflows/test.yml`
+- Triggers: push to `vq-105-tenant-login`, PR to `main` or `vq-105-tenant-login`
+- Services: `pgvector/pgvector:pg16` on port 5432
+- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
+- Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+
+## Tooling
+- `winget install GitHub.cli` — **done**
+- `gh auth login` — **done** (authenticated as intern142, HTTPS protocol)
+- `gh repo view intern142/ChatBot_VaultIQ` — **done** (repo access verified)
