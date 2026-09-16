@@ -205,6 +205,11 @@ export function AuthProvider({ children }) {
     }
   }, [clearSession]);
 
+  const clearWarning = useCallback(() => {
+    setFailedAttempts(0);
+    localStorage.removeItem('vaultiq_failed_attempts');
+  }, []);
+
   const value = {
     role,
     user,
@@ -218,6 +223,7 @@ export function AuthProvider({ children }) {
     register,
     logout,
     clearError: () => setError(null),
+    clearWarning,
   };
 
   return (

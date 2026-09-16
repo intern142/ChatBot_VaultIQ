@@ -9,7 +9,7 @@ export default function Login() {
   const [localError, setLocalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts } = useAuth();
+  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts, clearWarning } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get('next') || '/';
@@ -24,6 +24,7 @@ export default function Login() {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     if (localError) setLocalError('');
     if (error) clearError();
+    if (failedAttempts > 0) clearWarning();
   };
 
   const handleSubmit = async (e) => {
