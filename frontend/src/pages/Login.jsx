@@ -6,35 +6,31 @@ import { LogoMark, EyeIcon, EyeOffIcon } from '../components/Icons';
 
 export default function Login() {
   const [formData, setFormData] = useState({ orgCode: '', username: '', email: '', password: '', userType: '' });
-  const [error, setError] = useState('');
+  const [localError, setLocalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login, isLockedOut, lockoutUntil, clearError } = useAuth();
+  const { login, isLockedOut, lockoutUntil, error, clearError } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get('next') || '/';
 
   useEffect(() => {
     if (!isLockedOut) clearError();
+    setLocalError('');
   }, [isLockedOut, clearError]);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleUserTypeChange = (e) => {
-    const { value, checked } = e.target;
-    setFormData((prev) => ({ ...prev, userType: checked ? value : '' }));
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     const { orgCode, username, email, password, userType } = formData;
     if (!orgCode.trim() || !username.trim() || !email.trim() || !password.trim() || !userType) {
-      setError('Invalid credentials');
+      setLocalError('Invalid credentials');
       return;
     }
+    setLocalError('');
     setIsSubmitting(true);
     try {
       const res = await login(formData.orgCode, formData.username, formData.email, formData.password, formData.userType);
@@ -160,19 +156,19 @@ export default function Login() {
 
               <div className="form-group">
                 <label>User Type</label>
-                <div className="role-checkbox-group">
+                <div className="role-radio-group" role="radiogroup" aria-label="Select your role">
                   {[
+                    { value: 'employee', label: 'Employee' },
                     { value: 'admin', label: 'Admin' },
                     { value: 'super-admin', label: 'Super Admin' },
-                    { value: 'employee', label: 'Employee' },
                   ].map(({ value, label }) => (
-                    <label key={value} className="role-checkbox">
+                    <label key={value} className="role-radio">
                       <input
-                        type="checkbox"
+                        type="radio"
                         name="userType"
                         value={value}
                         checked={formData.userType === value}
-                        onChange={handleUserTypeChange}
+                        onChange={handleChange}
                         disabled={isSubmitting || isLockedOut}
                       />
                       <span>{label}</span>
@@ -181,7 +177,11 @@ export default function Login() {
                 </div>
               </div>
 
-              {error && <div className="form-error" role="alert">{error}</div>}
+              {localError || error ? (
+              <div className="form-error" role="alert">
+                {localError || error}
+              </div>
+            ) : null}
 
               <button type="submit" className="login-btn" disabled={isSubmitting || isLockedOut}>
                 {isSubmitting ? (
