@@ -16,6 +16,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/screenshots/
 frontend/screenshots-container/
+frontend/screenshots-fe2/
+frontend/capture-screenshots.cjs
 frontend/*.log
 frontend/build.log
 frontend/build.err
