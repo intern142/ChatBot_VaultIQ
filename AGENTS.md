@@ -110,7 +110,7 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-103-tenant-middleware
 - Current task: VQ-103 — Tenant context on every request
-- Status: **VQ-105 Gate 6 complete**. VQ-103 Gate 1 (Approach note), Gate 2 (Implementation), Gate 3 (Tests) complete. Gate 4 (Self-review) pending.
+- Status: **VQ-103 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 31 tests passing.
 
 ## Blockers
 - None
@@ -167,9 +167,9 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 1: Approach note drafted (reviewer approval pending)
 - Gate 2: Implementation complete (commit 4aaf703)
 - Gate 3: 5 tests written, all 31 tests pass (commit 87af5ff)
-- Gate 4: Self-review pending
+- Gate 4: Self-review complete, checklist ticked, PR #4 opened (commit 5df1fa0)
 - Gate 5: Pending (reviewer approval)
-- Gate 6: Pending (live container verify)
+- Gate 6: Live container verified — 5 tests passed (health, tenant login, tampered token 401, suspended tenant 403, super admin null tenant)
 - Gate 7: Pending (demo)
 
 ## Tech Stack
@@ -216,12 +216,12 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
-- [ ] VQ-103 — Tenant context on every request (Gates 1-3 complete; Gate 4 pending)
+- [x] VQ-103 — Tenant context on every request (Gates 1-4, 6 complete; Gate 5 pending)
 - [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
 
 ## Task Dependency Chain
 ```
-VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 (Gates 1-3) → VQ-104
+VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104
 ```
 
 ## Key Decisions
@@ -280,6 +280,7 @@ tests/
   conftest.py        — DB fixtures (async engine, session, db_conn)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
+  test_tenant_context.py — 5 tests for VQ-103
 alembic/
   env.py
   versions/
@@ -293,7 +294,7 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to `vq-105-tenant-login`, PR to `main` or `vq-105-tenant-login`
+- Triggers: push to `vq-105-tenant-login`, `vq-103-tenant-middleware`, PR to `main` or these branches
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
