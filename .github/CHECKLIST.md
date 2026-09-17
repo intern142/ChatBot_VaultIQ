@@ -15,6 +15,18 @@
 
 ---
 
+# VQ-103 Review Checklist
+
+## Common Mistakes
+
+- [x] **No header-based tenant override** — Tenant comes ONLY from verified JWT token. Grep confirms no X-Tenant header or tenant_id in request body parsing.
+- [x] **set_tenant_context uses SET LOCAL** — Scoped to current DB transaction, no leakage between requests.
+- [x] **Suspended tenant blocked at login** — Returns 403, does not reveal tenant status.
+- [x] **Cross-tenant returns 404** — Not 403, so other tenant's existence is not revealed.
+- [x] **Super admin bypasses tenant filtering** — role=super_admin skips tenant lookup.
+
+---
+
 # Review Checklist & Common Mistakes
 
 Use this checklist for every story before opening a PR.
