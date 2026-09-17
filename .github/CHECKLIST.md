@@ -25,6 +25,19 @@
 - [x] **Cross-tenant returns 404** — Not 403, so other tenant's existence is not revealed.
 - [x] **Super admin bypasses tenant filtering** — role=super_admin skips tenant lookup.
 
+# VQ-104 Review Checklist
+
+## Common Mistakes
+
+- [x] **User filename never reaches filesystem path** — Stored as UUID only, original filename only in DB
+- [x] **Cross-tenant download/preview/delete returns 404** — Not 403, doesn't reveal other tenant exists
+- [x] **Path traversal blocked** — Filename sanitization strips `..`, `/`, `\` before any use
+- [x] **Mime type allowlist enforced** — Only allowed types accepted (pdf, txt, md, docx, xlsx, csv)
+- [x] **File size limit enforced** — 50MB max, returns 413
+- [x] **RLS policy on documents table** — `tenant_id = current_setting('app.current_tenant')::uuid`
+- [x] **Storage usage tracked per tenant** — `size_bytes` column, aggregated via SUM
+- [x] **File deleted from disk on document delete** — No orphaned files
+
 ---
 
 # Review Checklist & Common Mistakes
