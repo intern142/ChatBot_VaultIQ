@@ -213,6 +213,35 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 
 ---
 
+## VQ-104 — Per-tenant document storage (Detailed)
+**Note:** This is **VQ-104**, not HX-104. Asana shows it as HX-104 but we are not using HX in this application. The correct story ID is **VQ-104**.
+**[BE][W1][P0][3pt]**
+
+### Objective
+Each tenant's uploaded files are kept physically separate, and no user-supplied value can influence where a file is stored or which file is read.
+
+### Acceptance Criteria
+1. Files are stored in a location derived from the tenant and a server-generated document identity, never from the uploaded filename
+2. Reading, previewing or downloading a file re-checks that the file belongs to the requesting tenant
+3. Per-tenant storage usage is tracked so quotas can be enforced later
+
+### Must Be Proven
+- Automated tests for path-manipulation attempts and for cross-tenant download
+- Evidence from the live container showing where an uploaded file landed and a refused cross-tenant fetch
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — path layout, sanitisation rules, where tenant is re-checked. Reviewer approves before coding. |
+| 2 | Implement — Branch `vq-104-storage-namespace`. Small commits with story ID. |
+| 3 | Tests written and green — Path traversal cases; cross-tenant download denied. Full suite green. Paste summary. |
+| 4 | Self-review — Confirm the user filename never reaches the path. Tick Common mistakes. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Upload as tenant A on the live container, inspect the disk path, try to fetch it as tenant B. Paste evidence. |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
