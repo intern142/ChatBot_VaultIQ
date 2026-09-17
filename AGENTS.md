@@ -183,6 +183,7 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## VQ-103 — Tenant context on every request (Detailed)
+**Note:** This is **VQ-103**, not HX-103. Asana shows it as HX-103 but we are not using HX in this application. The correct story ID is **VQ-103**.
 **[BE][W1][P0][3pt]**
 
 ### Objective
