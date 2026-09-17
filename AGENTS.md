@@ -213,6 +213,76 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 
 ---
 
+## VQ-101 — Tenant data model and migration (Detailed)
+**Note:** This is **VQ-101**, not HX-101. Asana shows it as HX-101 but we are not using HX in this application. The correct story ID is **VQ-101**.
+**[BE][W1][P0][5pt]**
+
+### Objective
+Introduce the client organisation (tenant) as a first-class concept so that every piece of data in VaultIQ belongs to exactly one tenant.
+
+### Acceptance Criteria
+1. A tenant can be created with a unique short code, a display name and a status (active / suspended / offboarding / purged)
+2. Every record that holds client data (users, documents and their versions, text chunks, embeddings, conversations, messages, feedback, audit entries, sessions, cached answers, ingestion jobs) is linked to one tenant and cannot exist without one
+3. Platform (Super Admin) accounts are the only accounts not linked to a tenant
+4. All existing HeXta/ADS data ends up under one tenant with nothing lost
+5. The change can be rolled back
+
+### Must Be Proven
+- Before/after record counts for the ADS migration, posted as a comment
+- An automated test that inserting client data without a tenant fails
+- The full existing test suite still passes
+
+### Out of Scope
+- Enforcing who can read which tenant's data (VQ-102, VQ-103)
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — tables to touch, migration steps, tests, risks. Reviewer approves before coding. |
+| 2 | Implement — Branch `vq-101-tenant-model`. Small commits with story ID. Push daily. |
+| 3 | Tests written and green — Migration up/down test on seeded data; model test that missing tenant_id fails; full test suite green. Paste run summary. |
+| 4 | Self-review — Go through Review checklist and Common mistakes; tick each in comment. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Rebuild image, run migration, verify each acceptance criterion by hand. Paste evidence (commands, row counts). |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
+## VQ-105 — Tenant-scoped login and session tokens (Detailed)
+**Note:** This is **VQ-105**, not HX-105. Asana shows it as HX-105 but we are not using HX in this application. The correct story ID is **VQ-105**.
+**[BE][W1][P0][5pt]**
+
+### Objective
+Users log in to their own organisation, and every request afterwards carries proof of who they are, their role, and which tenant they belong to.
+
+### Acceptance Criteria
+1. Login requires the organisation code, email and password
+2. A wrong organisation code, wrong email and wrong password all produce the same response, in the same time, so an attacker cannot tell which one was wrong
+3. The session token identifies the user, their role and their tenant; a platform (Super Admin) token has no tenant
+4. Sessions can be refreshed and revoked; a revoked session stops working on the very next request
+5. Repeated failed logins lock the account temporarily
+6. Minimum password strength is enforced
+
+### Must Be Proven
+- Automated tests for the full success/failure matrix, a tampered token, and a revoked session
+- Evidence from the live container showing decoded tokens for each role (secrets redacted)
+
+### Out of Scope
+- Invite and password-reset flows (VQ-107, VQ-301)
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — login flow, JWT claims, refresh/revocation reuse, lockout. Reviewer approves first. |
+| 2 | Implement — Branch `vq-105-tenant-login`. Small commits with story ID. |
+| 3 | Tests written and green — Login matrix, token tampering, revoked session. Full suite green. Paste summary. |
+| 4 | Self-review — Confirm identical error text for all login failures. Tick Common mistakes. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Log in as Super Admin, Client Admin, Employee; decode JWT and paste claims. |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
 ## VQ-104 — Per-tenant document storage (Detailed)
 **Note:** This is **VQ-104**, not HX-104. Asana shows it as HX-104 but we are not using HX in this application. The correct story ID is **VQ-104**.
 **[BE][W1][P0][3pt]**
