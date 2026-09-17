@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [vq-105-tenant-login, vq-103-tenant-middleware]
+    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace]
   pull_request:
-    branches: [main, vq-105-tenant-login, vq-103-tenant-middleware]
+    branches: [main, vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace]
 
 jobs:
   test:
