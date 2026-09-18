@@ -288,14 +288,15 @@ input:disabled {
 
 /* ---- Forms ---- */
 .form-group {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.55rem;
 }
 
 .form-group label {
   display: block;
-  font-size: 0.85rem;
-  font-weight: 500;
-  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-bottom: 0.2rem;
   color: var(--foreground);
 }
 
@@ -304,11 +305,11 @@ input:disabled {
 .search-bar input,
 .chat-input-area input {
   width: 100%;
-  padding: 0.6rem 0.8rem;
+  padding: 0.5rem 0.7rem;
   border: 1px solid var(--input);
   border-radius: var(--radius);
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--foreground);
   background: var(--card);
   outline: none;
@@ -335,10 +336,10 @@ input:disabled {
 }
 
 .form-group label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
   color: var(--foreground);
 }
 
@@ -347,11 +348,11 @@ input:disabled {
   color: var(--destructive);
   border: 1px solid hsl(0 84% 60% / 0.45);
   border-left: 4px solid var(--destructive);
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   border-radius: var(--radius);
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
   animation: errorSlideIn 0.2s ease;
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
 }
@@ -430,22 +431,24 @@ input:disabled {
 
 /* ---- Auth split (Login) ---- */
 .login-page {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: 0.75rem;
 }
 
 .login-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
   width: 100%;
-  max-width: 960px;
-  min-height: auto;
-  border-radius: calc(var(--radius) + 1rem);
-  overflow: hidden;
+  max-width: 860px;
+  height: calc(100vh - 1.5rem);
+  max-height: 640px;
+  border-radius: calc(var(--radius) + 0.75rem);
+  overflow-y: auto;
   box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
 }
 
 .login-brand-panel {
@@ -453,12 +456,20 @@ input:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--foreground);
-  background-image: var(--proof-grid);
-  background-size: var(--proof-grid-size);
-  color: var(--primary-foreground);
-  padding: 2.5rem 2rem;
+  background: #000;
+  color: #fff;
+  padding: 1.5rem 1.75rem;
   overflow: hidden;
+}
+
+.login-brand-panel::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, hsl(0 0% 100% / 0.2), transparent);
 }
 
 .brand-grid {
@@ -514,8 +525,8 @@ input:disabled {
 .brand-logo-wrap {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
 }
 
 .brand-logo {
@@ -542,58 +553,80 @@ input:disabled {
 }
 
 .brand-headline {
-  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  font-size: clamp(1.4rem, 2.5vw, 2rem);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.02em;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.5rem;
 }
 
 .brand-sub {
-  font-size: 1rem;
-  line-height: 1.5;
+  font-size: 0.875rem;
+  line-height: 1.45;
   color: hsl(0 0% 100% / 0.72);
   max-width: 400px;
-  margin-bottom: 1.75rem;
+  margin-bottom: 1rem;
 }
 
 .brand-features {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 .brand-feature {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 0.95rem;
+  gap: 0.6rem;
+  font-size: 0.85rem;
   color: hsl(0 0% 100% / 0.86);
 }
 
 .brand-feature svg {
-  width: 19px;
-  height: 19px;
+  width: 17px;
+  height: 17px;
   color: hsl(0 0% 100% / 0.6);
   flex-shrink: 0;
 }
 
+.brand-orb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid hsl(0 0% 100% / 0.12);
+}
+
+.orb-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: hsl(0 0% 100% / 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: color 0.3s ease;
+}
+
 .login-form-panel {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem 1.5rem;
-  background: var(--background);
+  padding: 1.25rem 1.5rem;
+  background: #fafafa;
 }
 
 .login-card {
+  position: relative;
+  overflow: visible;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 0.75rem);
-  box-shadow: var(--shadow-soft);
-  padding: 2rem 1.75rem;
+  border-radius: calc(var(--radius) + 0.5rem);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem 1.5rem;
   width: 100%;
-  max-width: 400px;
+  max-width: 380px;
 }
 
 .auth-card {
@@ -614,51 +647,56 @@ input:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.2rem;
-  margin-bottom: 1.75rem;
+  gap: 0.15rem;
+  margin-bottom: 1rem;
   text-align: center;
 }
 
 .login-brand--form {
   align-items: center;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.75rem;
 }
 
 .logo-mark--form {
-  width: 46px;
-  height: 46px;
+  width: 38px;
+  height: 38px;
   border-radius: calc(var(--radius) + 0.15rem);
-  font-size: 1.4rem;
-  margin-bottom: 0.6rem;
+  font-size: 1.2rem;
+  margin-bottom: 0.4rem;
 }
 
 .logo-mark--form svg {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
 }
 
 .login-title {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .login-subtitle {
   color: var(--muted-foreground);
-  font-size: 0.925rem;
-  margin-top: 0.2rem;
+  font-size: 0.825rem;
+  margin-top: 0.1rem;
 }
 
 .login-btn {
   width: 100%;
-  margin-top: 0.25rem;
-  padding: 0.65rem 1.25rem;
-  font-size: 0.9rem;
+  margin-top: 0.15rem;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.85rem;
   border-radius: calc(var(--radius) + 0.05rem);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.12s ease, transform 0.06s ease, box-shadow 0.12s ease;
+}
+
+.login-btn-wrap {
+  position: relative;
+  overflow: visible;
 }
 
 .login-btn:active:not(:disabled) {
@@ -696,19 +734,19 @@ input:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .password-label-row label {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
 }
 
 .forgot-link {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--muted-foreground);
   text-decoration: none;
   font-weight: 500;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.25rem;
 }
 
 .forgot-link:hover {
@@ -840,16 +878,16 @@ input:disabled {
 .role-radio-group {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 
 .role-radio {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
-  padding: 0.6rem 0.5rem;
-  font-size: 0.82rem;
+  gap: 0.35rem;
+  padding: 0.45rem 0.4rem;
+  font-size: 0.78rem;
   font-weight: 500;
   color: var(--foreground);
   background: var(--card);
@@ -1136,32 +1174,46 @@ input:disabled {
 
   .login-card,
   .auth-card {
-    padding: 1.75rem;
+    padding: 1.25rem;
   }
 
   .login-split {
     grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
   }
 
   .login-brand-panel {
-    padding: 2.5rem 1.5rem;
+    padding: 1.5rem 1.5rem;
   }
 
   .brand-logo-wrap {
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
   }
 
   .brand-headline {
-    font-size: 2rem;
+    font-size: 1.5rem;
   }
 
   .brand-features {
     display: none;
   }
 
+  .brand-orb {
+    display: none;
+  }
+
   .login-form-panel {
-    padding: 2rem 1rem;
+    padding: 1.25rem 1rem;
     align-items: flex-start;
+  }
+
+  .login-form-panel::before {
+    display: none;
+  }
+
+  .login-brand-panel::after {
+    display: none;
   }
 
   .role-checkbox-group {
