@@ -108,9 +108,9 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-103-tenant-middleware
-- Current task: VQ-103 — Tenant context on every request
-- Status: **VQ-103 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 31 tests passing.
+- Current branch: vq-104-storage-namespace
+- Current task: VQ-104 — Per-tenant document storage
+- Status: **VQ-104 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 57 tests passing.
 
 ## Blockers
 - None
@@ -170,6 +170,24 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 4: Self-review complete, checklist ticked, PR #4 opened (commit 5df1fa0)
 - Gate 5: Pending (reviewer approval)
 - Gate 6: Live container verified — 5 tests passed (health, tenant login, tampered token 401, suspended tenant 403, super admin null tenant)
+- Gate 7: Pending (demo)
+
+### VQ-104 — Per-tenant document storage
+- Storage path: `storage/{tenant_id}/{doc_uuid}/original/{uuid}.bin` — never from uploaded filename
+- 6 endpoints: POST/GET/DELETE /documents, preview, download, usage
+- Mime allowlist (pdf, txt, md, docx, xlsx, csv), 50MB max
+- Path traversal sanitization (.., /, \ stripped)
+- Cross-tenant download/preview/delete returns 404
+- RLS policy on documents table
+- File deleted from disk on document delete
+- Storage usage tracked: count, bytes, MB per tenant
+- 13 tests: upload, list, preview, download, cross-tenant 404, delete, usage, path traversal
+- Gate 1: Approach note drafted (reviewer approval pending)
+- Gate 2: Implementation complete (commits 37ec731, 0d50044, 47e7595, 126170c, 3a417b3, b733d65)
+- Gate 3: 13 tests written, all 57 tests passing
+- Gate 4: Self-review complete, checklist ticked, PR #5 opened
+- Gate 5: Pending (reviewer approval)
+- Gate 6: Live container verified — Tenant A upload stored at `storage/{tenant_id}/{doc_uuid}/original/`, cross-tenant download 404, storage usage tracked
 - Gate 7: Pending (demo)
 
 ## Tech Stack
@@ -316,11 +334,11 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-103 — Tenant context on every request (Gates 1-4, 6 complete; Gate 5 pending)
-- [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
+- [x] VQ-104 — Per-tenant document storage (Gates 1-4, 6 complete; Gate 5 pending)
 
 ## Task Dependency Chain
 ```
-VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104
+VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104 ✅ (Gates 1-4, 6)
 ```
 
 ## Key Decisions
@@ -338,8 +356,16 @@ VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-
 - users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
 - sessions: id, user_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
 
+## Database Tables
+- tenants: id, short_code, name, status, timestamps
+- users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
+- sessions: id, user_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
+- documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
+
 ## RLS Policy
 - Enabled on users table
+- Policy: tenant_id = current_setting('app.current_tenant')::uuid
+- Enabled on documents table
 - Policy: tenant_id = current_setting('app.current_tenant')::uuid
 
 ## Auth Endpoints
@@ -347,6 +373,14 @@ VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-
 - POST /auth/refresh — Refresh token (requires valid Bearer token)
 - POST /auth/logout — Revoke session (requires valid Bearer token)
 - GET /health — Health check (no auth required)
+
+## Document Endpoints
+- POST /documents — Upload file (multipart, validates mime/size)
+- GET /documents — List documents (paginated, tenant-scoped)
+- GET /documents/{id}/preview — Preview (text inline, 5000 chars)
+- GET /documents/{id}/download — Download (original filename)
+- DELETE /documents/{id} — Delete (file + DB)
+- GET /documents/usage — Storage stats (count, bytes, MB)
 
 ## Project Structure
 ```
@@ -366,25 +400,32 @@ app/
     tenant.py        — Tenant model
     user.py          — User model
     session.py       — Session model (token tracking, revocation)
+    document.py      — Document model
   routes/
     __init__.py
     auth.py          — Login, refresh, logout endpoints
+    documents.py     — Document CRUD, preview, download, usage
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
     tenant.py        — TenantCreate, TenantResponse
     user.py          — UserCreate, UserResponse
+    document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
+  services/
+    storage.py       — File save/delete with tenant isolation
 tests/
   __init__.py
   conftest.py        — DB fixtures (async engine, session, db_conn)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
   test_tenant_context.py — 5 tests for VQ-103
+  test_documents.py  — 13 tests for VQ-104
 alembic/
   env.py
   versions/
     001_initial.py   — Tenants + Users + RLS migration
     002_add_sessions.py — Sessions table + lockout columns
+    d9ecec7d2e04_vq_104_add_documents_table_for_per_.py — Documents table + RLS
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/
@@ -397,6 +438,7 @@ alembic/
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+- Triggers include `vq-104-storage-namespace` branch
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
