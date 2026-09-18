@@ -32,7 +32,7 @@ export function LockoutBanner({ lockoutUntil, onClose }) {
 }
 
 export function LockoutWarning({ attempts, maxAttempts = 5, onClose }) {
-  if (attempts < 2 || attempts >= maxAttempts) return null;
+  if (attempts < 3 || attempts >= maxAttempts) return null;
   
   const remaining = maxAttempts - attempts;
   

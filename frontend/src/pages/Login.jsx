@@ -3,13 +3,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LockoutBanner, LockoutWarning } from '../components/LockoutBanner';
 import { LogoMark, EyeIcon, EyeOffIcon } from '../components/Icons';
+import { BorderBeam } from 'border-beam';
+import { ThinkingOrb } from 'thinking-orbs';
 
 export default function Login() {
   const [formData, setFormData] = useState({ orgCode: '', username: '', email: '', password: '', userType: '' });
   const [localError, setLocalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts, clearWarning } = useAuth();
+  const [orbState, setOrbState] = useState('working');
+  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get('next') || '/';
@@ -20,11 +23,20 @@ export default function Login() {
     }
   }, [isLockedOut]);
 
+  useEffect(() => {
+    const states = ['working', 'searching', 'composing'];
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % states.length;
+      setOrbState(states[index]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     if (localError) setLocalError('');
     if (error) clearError();
-    if (failedAttempts > 0) clearWarning();
   };
 
   const handleSubmit = async (e) => {
@@ -64,10 +76,15 @@ export default function Login() {
             </div>
             <h1 className="brand-headline">Find the answer.<br />Trust the source.</h1>
             <p className="brand-sub">Your company knowledge, securely at your fingertips.</p>
-            <div className="brand-features">
-              <span className="brand-feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Encrypted &amp; Secure</span>
+<div className="brand-features">
+              <span className="brand-feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Encrypted & Secure</span>
               <span className="brand-feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/></svg>Document Management</span>
               <span className="brand-feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>AI-Powered Search</span>
+            </div>
+
+            <div className="brand-orb" aria-label="AI processing">
+              <ThinkingOrb state={orbState} size={64} theme="dark" />
+              <p className="orb-label">{orbState === 'working' ? 'Loading' : orbState === 'searching' ? 'Analysing' : 'Results'}</p>
             </div>
           </div>
         </div>
@@ -75,6 +92,7 @@ export default function Login() {
         {/* Right: Form panel */}
         <div className="login-form-panel">
           <div className="login-card">
+            <BorderBeam size="md" colorVariant="mono" theme="light" />
             <div className="login-brand login-brand--form">
               <span className="logo-mark logo-mark--form" aria-hidden="true"><LogoMark /></span>
               <h2 className="login-title">Welcome back</h2>
@@ -188,11 +206,14 @@ export default function Login() {
               </div>
             ) : null}
 
-              <button type="submit" className="login-btn" disabled={isSubmitting || isLockedOut}>
-                {isSubmitting ? (
-                  <span className="btn-loading"><span className="spinner" /> Signing in…</span>
-                ) : 'Sign In'}
-              </button>
+              <div className="login-btn-wrap">
+                <BorderBeam size="sm" colorVariant="mono" theme="light" active={!isSubmitting} />
+                <button type="submit" className="login-btn" disabled={isSubmitting || isLockedOut}>
+                  {isSubmitting ? (
+                    <span className="btn-loading"><span className="spinner" /> Signing in…</span>
+                  ) : 'Sign In'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

@@ -1,12 +1,27 @@
 # VaultIQ — Current Status
 
 **Branch:** `vq-fe2-login_page`
-**Last commit:** `7a28b0e` (FE2-14)
-**Date:** 2026-09-16
+**Last commit:** `47782e3` (FE2-19)
+**Date:** 2026-09-18
 
 ---
 
 ## 1. What was completed
+
+### Local run — frontend (2026-09-18)
+- Reviewed full frontend codebase: App routing (`src/App.jsx`), AuthContext + TokenStore session flow, mock/real API layer, all role pages (employee, client-admin, super-admin)
+- Confirmed app runs fully offline in mock mode (`VITE_API_MODE=mock`, default) — no backend required
+- Started Vite dev server locally and verified it is reachable: **http://127.0.0.1:5173** (listening, `--strictPort`)
+- Recorded seeded demo accounts for manual testing (`src/api/mock/db.ts`): `ORG-12345` → `admin/Admin@123` (super-admin), `cadmin/Client@123` (client-admin), `employee/Employee@123` (employee); `ORG-67890` → Beta Labs accounts
+
+### Login lockout fix (2026-09-18)
+- Root cause: `Login.jsx` `handleChange` called `clearWarning()` on every keystroke, which reset `failedAttempts` to 0 — so the 5-attempt counter never accumulated in a real browser and lockout never triggered (tests passed only because they clicked without typing between attempts)
+- Removed the `clearWarning()` call from `handleChange` (and the now-unused destructure) — typing no longer resets the failed-attempt count; the transient "Invalid credentials" error still clears on input
+- `LockoutWarning` now renders from the 3rd failed attempt (was 2nd) to match the requirement
+- Lockout verified end-to-end: disabled sign-in, countdown banner "Try again in 14:59", 15-min lockout persisted to localStorage
+- Regression tests added: counter survives typing between attempts, warning at 3 attempts, account locks at 5
+
+### Prior work (before this session)
 
 ### Login Page Redesign (FE2-12)
 - Two-column desktop layout: left branding panel + right login form
@@ -53,13 +68,20 @@
 - Real backend implementation (out of scope — this is the mock)
 - Integration test against a running real backend (requires deployed backend + `VITE_API_MODE=real`)
 - Register page styling regression (uses `.login-card` which was restyled for split layout; currently left-aligned on desktop)
-- Consider removing `failedAttempts` from `login`/`register` deps in `AuthContext` (pre-existing lint warning)
+- Address pre-existing lint warnings in `AuthContext.jsx` (stale closures, missing deps, `Date.now` in render) and unused imports/vars in tests, `Register.jsx`, `App.jsx`
+- Manual browser verification of run: login lockout banner appears on the 5th failed attempt (countdown shows one render after lockout starts)
 
 ---
 
 ## 3. Files changed
 
-### New files
+- `src/pages/Login.jsx` — removed `clearWarning()` from `handleChange` + unused destructure (lockout fix)
+- `src/components/LockoutBanner.jsx` — warning threshold `attempts < 2` → `attempts < 3`
+- `src/__tests__/auth.test.jsx` — LockoutWarning unit tests (no warning before 3, message at 3, none when locked)
+- `src/api/__tests__/authFlow.test.jsx` — Login UI regression tests (typing-between-attempts, warning at 3, lockout at 5)
+- Regenerated runtime logs: `frontend/dev-server.log`, `frontend/dev-server-err.log` (dev server only)
+
+### New files (prior sessions)
 | File | Purpose |
 |------|---------|
 | `src/api/types.ts` | Shared request/response types + `ApiError` |
@@ -74,7 +96,7 @@
 | `frontend/.env.example` | Documented config variables |
 | `docs/CURRENT_STATUS.md` | This file |
 
-### Modified files
+### Modified files (prior session)
 | File | Changes |
 |------|---------|
 | `src/api/auth.ts` | Rewired as facade; re-exports types + config |
@@ -83,6 +105,15 @@
 | `src/App.jsx` | Super Admin default redirect → `/super/dashboard` |
 | `src/index.css` | Added `.role-radio-group` / `.role-radio` styles (FE2-14) |
 | `frontend/.gitignore` | Added `.env` / `.env.*` (keep `.env.example`) |
+
+### Modified files (this session)
+| File | Change |
+|------|--------|
+| `src/pages/Login.jsx` | Removed `clearWarning()` from `handleChange` so failed attempts accumulate while typing |
+| `src/components/LockoutBanner.jsx` | Warning threshold `attempts < 2` → `attempts < 3` |
+| `src/__tests__/auth.test.jsx` | `LockoutWarning` unit tests |
+| `src/api/__tests__/authFlow.test.jsx` | Login UI lockout regression tests |
+| `docs/CURRENT_STATUS.md` | This file |
 
 ---
 
@@ -95,6 +126,8 @@
 | Register page layout regression after split-layout restyle | `Register.jsx` + `index.css` | Known — `.login-card` now left-aligned; needs separate fix |
 | AuthContext `refreshAccessToken` missing dep / closure issues | `AuthContext.jsx` | Pre-existing lint warnings |
 | `verify()` / `refresh()` / `logout()` sent no auth headers | `auth.ts` (old) | Fixed — real driver now binds tokens from `TokenStore` |
+| "localhost refused to connect" even though Vite reported ready | dev server | Fixed — shell tool timeout was killing the foreground process; `Start-Process` (detached) keeps it running |
+| Failed-attempt counter reset to 0 on every keystroke → 5-attempt lockout never triggered | `Login.jsx` `handleChange` + `AuthContext.clearWarning` | Fixed — typing no longer clears the count; countdown banner confirmed ("14:59") |
 
 ---
 
@@ -106,13 +139,17 @@
 - **Tests target the active driver** — no mocking of `../api/auth`; same test file runs against mock (default) or real (`VITE_API_MODE=real`)
 - **Token rotation on refresh** — old refresh token revoked, new pair issued (matching real IdP behavior)
 - **No external dependencies** — all inline, works with cable pulled
+- **Run dev server detached** (`Start-Process npm run dev`) so it survives shell timeouts; bind `127.0.0.1:5173` with `--strictPort`
+- **Nothing to install/config** — `node_modules` present, no `.env` needed (mock mode default)
+- **Lockout counter must never be cleared by user input** — typing clears the transient error message only; the failed-attempt count persists until lockout expires or a login succeeds
+- **Warning threshold = 3 failed attempts** (2 attempts remaining shown); lockout at 5 for 15 minutes
 
 ---
 
 ## 6. Next recommended steps
 
-1. **Fix Register page layout** — add a dedicated `.register-page` / `.auth-card` style block that centers the card like the old design, or extend the split layout to a register-brand panel
-2. **Run against real backend** — deploy backend, set `VITE_API_MODE=real`, `VITE_API_BASE=/api`, run `npm test` to validate same test suite passes
-3. **Add E2E test** (Playwright) that exercises login→dashboard→logout against both backends
-4. **Consider extracting `setError` to AuthContext** for cleaner empty-field handling in Login
-5. **Address AuthContext lint warnings** (stale closures, missing deps) in a dedicated refactor
+1. **Verify locally in browser** — open http://127.0.0.1:5173, log in as each seeded role from `mock/db.ts` and sanity-check chat/history/dashboard pages; trigger 5 bad logins to confirm the lockout banner
+2. **Fix Register page layout** — add a dedicated `.register-page` / `.auth-card` style block that centers the card like the old design, or extend the split layout to a register-brand panel
+3. **Clean up pre-existing lint warnings** — `AuthContext.jsx` (memoization, deps, `Date.now` in render), unused imports in `auth.test.jsx`, unused `handleChange` in `Register.jsx`, unused `ROLE_HOME` in `App.jsx`
+4. **Run against real backend** — deploy backend, set `VITE_API_MODE=real`, `VITE_API_BASE=/api`, run `npm test` to validate same test suite passes
+5. **Add E2E test** (Playwright) that exercises login→dashboard→logout against both backends

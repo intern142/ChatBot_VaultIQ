@@ -106,6 +106,14 @@ describe('Login page validation vs active backend', () => {
     sessionStorage.clear();
   });
 
+  const fillLoginForm = (retry = 0) => {
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: retry ? `admin-${retry}` : 'admin' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@acme.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong-password' } });
+    fireEvent.change(screen.getByLabelText('Organization Code'), { target: { value: 'ORG-12345' } });
+    fireEvent.click(screen.getByLabelText('Super Admin'));
+  };
+
   it('shows "Invalid credentials" when a field is left empty (no API call needed)', async () => {
     renderWithAuth(<Login />);
     fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
@@ -114,13 +122,52 @@ describe('Login page validation vs active backend', () => {
 
   it('shows "Invalid credentials" for wrong credentials and keeps the form on screen', async () => {
     renderWithAuth(<Login />);
-    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
-    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@acme.com' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong-password' } });
-    fireEvent.change(screen.getByLabelText('Organization Code'), { target: { value: 'ORG-12345' } });
-    fireEvent.click(screen.getByLabelText('Super Admin'));
+    fillLoginForm();
     fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Invalid credentials'));
     expect(screen.getByRole('button', { name: /Sign In/i })).toBeInTheDocument();
+  });
+
+  it('shows lockout warning after 3 failed attempts, even when typing between attempts', async () => {
+    renderWithAuth(<Login />);
+    fillLoginForm();
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Invalid credentials'), { timeout: 3000 });
+    expect(screen.queryByText(/attempts remaining before account lockout/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Invalid credentials'), { timeout: 3000 });
+    expect(screen.queryByText(/attempts remaining before account lockout/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin-3' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
+    await waitFor(
+      () => expect(screen.getByText(/2 attempts remaining before account lockout/i)).toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+  });
+
+  it('locks the account for 15 minutes after 5 failed attempts, even when typing between attempts', async () => {
+    renderWithAuth(<Login />);
+    fillLoginForm();
+    for (let i = 1; i <= 5; i++) {
+      fireEvent.click(screen.getByRole('button', { name: /Sign In/i }));
+      await waitFor(
+        () =>
+          expect(
+            screen.getAllByRole('alert').some((el) => el.textContent.includes('Invalid credentials')),
+          ).toBe(true),
+        { timeout: 3000 },
+      );
+      if (i < 5) {
+        fireEvent.change(screen.getByLabelText('Username'), { target: { value: `admin-${i}` } });
+      }
+    }
+    await waitFor(
+      () => expect(screen.getByText(/Too many failed attempts/i)).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    expect(screen.getByRole('button', { name: /Sign In/i })).toBeDisabled();
   });
 });

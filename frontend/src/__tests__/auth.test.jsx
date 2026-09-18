@@ -3,7 +3,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
-import { LockoutBanner } from '../components/LockoutBanner';
+import { LockoutBanner, LockoutWarning } from '../components/LockoutBanner';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../api/auth', () => ({
@@ -45,6 +45,23 @@ describe('LockoutBanner', () => {
     const nearFuture = Date.now() + 50;
     renderWithAuth(<LockoutBanner lockoutUntil={nearFuture} onClose={onClose} />);
     await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 2000 });
+  });
+});
+
+describe('LockoutWarning', () => {
+  it('renders nothing before the 3rd failed attempt', () => {
+    render(<LockoutWarning attempts={2} maxAttempts={5} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('renders remaining-attempts message from the 3rd failed attempt', () => {
+    render(<LockoutWarning attempts={3} maxAttempts={5} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/2 attempts remaining before account lockout/);
+  });
+
+  it('renders nothing when locked out (attempts >= max)', () => {
+    render(<LockoutWarning attempts={5} maxAttempts={5} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
