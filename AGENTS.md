@@ -111,6 +111,7 @@ We sell this to many companies at once from one installation. Each company is a 
 - Current branch: vq-104-storage-namespace
 - Current task: VQ-104 — Per-tenant document storage
 - Status: **VQ-104 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 57 tests passing.
+- Gate 6 Evidence: Tenant A upload → `storage/8b8b25d9-3237-4469-9309-c0a15bdabce4/2e3e2639-6bf8-4021-8b5a-9abb535c9857/original/2e3e2639-6bf8-4021-8b5a-9abb535c9857.pdf`; Cross-tenant download (Tenant B) → 404; Storage usage → 1 doc, 13 bytes
 
 ## Blockers
 - None
@@ -187,7 +188,7 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 3: 13 tests written, all 57 tests passing
 - Gate 4: Self-review complete, checklist ticked, PR #5 opened
 - Gate 5: Pending (reviewer approval)
-- Gate 6: Live container verified — Tenant A upload stored at `storage/{tenant_id}/{doc_uuid}/original/`, cross-tenant download 404, storage usage tracked
+- Gate 6: Live container verified — Tenant A upload stored at `storage/8b8b25d9-3237-4469-9309-c0a15bdabce4/2e3e2639-6bf8-4021-8b5a-9abb535c9857/original/2e3e2639-6bf8-4021-8b5a-9abb535c9857.pdf`, cross-tenant download from Tenant B returns 404, storage usage tracked (1 doc, 13 bytes)
 - Gate 7: Pending (demo)
 
 ## Tech Stack
