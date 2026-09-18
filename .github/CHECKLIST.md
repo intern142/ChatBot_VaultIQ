@@ -1,3 +1,45 @@
+# VQ-105 Review Checklist
+
+## Common Mistakes
+
+- [x] **Identical error messages** — All login failures return `"Invalid credentials"` (wrong email, wrong password, locked account). No user enumeration.
+- [x] **Timing attack prevention** — 200ms constant delay on all login outcomes (success and failure).
+- [x] **No secrets in code** — JWT_SECRET loaded from env via pydantic-settings, not hardcoded.
+- [x] **NoSQL injection** — Parameterized queries via SQLAlchemy ORM.
+- [x] **Token expiration** — JWT tokens expire after 24h (configurable).
+- [x] **Session revocation** — Logout invalidates session in DB, subsequent requests rejected.
+- [x] **Account lockout** — 5 failed attempts → 15 min lockout, successful login resets counter.
+- [x] **Super admin isolation** — Super admin (organisation_code=SUPER) skips tenant lookup, no tenant_id in token.
+- [x] **Password strength** — Min 8 chars, uppercase, lowercase, digit, special character enforced.
+- [x] **RLS enabled** — Row-level security on users table, tenant_id policy active.
+
+---
+
+# VQ-103 Review Checklist
+
+## Common Mistakes
+
+- [x] **No header-based tenant override** — Tenant comes ONLY from verified JWT token. Grep confirms no X-Tenant header or tenant_id in request body parsing.
+- [x] **set_tenant_context uses SET LOCAL** — Scoped to current DB transaction, no leakage between requests.
+- [x] **Suspended tenant blocked at login** — Returns 403, does not reveal tenant status.
+- [x] **Cross-tenant returns 404** — Not 403, so other tenant's existence is not revealed.
+- [x] **Super admin bypasses tenant filtering** — role=super_admin skips tenant lookup.
+
+# VQ-104 Review Checklist
+
+## Common Mistakes
+
+- [x] **User filename never reaches filesystem path** — Stored as UUID only, original filename only in DB
+- [x] **Cross-tenant download/preview/delete returns 404** — Not 403, doesn't reveal other tenant exists
+- [x] **Path traversal blocked** — Filename sanitization strips `..`, `/`, `\` before any use
+- [x] **Mime type allowlist enforced** — Only allowed types accepted (pdf, txt, md, docx, xlsx, csv)
+- [x] **File size limit enforced** — 50MB max, returns 413
+- [x] **RLS policy on documents table** — `tenant_id = current_setting('app.current_tenant')::uuid`
+- [x] **Storage usage tracked per tenant** — `size_bytes` column, aggregated via SUM
+- [x] **File deleted from disk on document delete** — No orphaned files
+
+---
+
 # Review Checklist & Common Mistakes
 
 Use this checklist for every story before opening a PR.

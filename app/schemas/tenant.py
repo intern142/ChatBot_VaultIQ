@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from enum import Enum
@@ -23,12 +23,11 @@ class TenantCreate(BaseModel):
 
 
 class TenantResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     short_code: str
     name: str
     status: TenantStatus
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
