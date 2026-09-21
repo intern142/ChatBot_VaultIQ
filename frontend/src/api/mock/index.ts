@@ -4,8 +4,8 @@
  * latency so async loading states behave like production.
  */
 import { TokenStore } from '../../lib/TokenStore';
-import { AuthApi, LoginRequest, RegisterRequest } from '../types';
-import { handleLogin, handleRegister, handleRefresh, handleLogout, handleVerify, handleGetSuperAdminStats } from './handlers';
+import { AuthApi, LoginRequest, RegisterRequest, UploadDocumentRequest, DocumentStatus } from '../types';
+import { handleLogin, handleRegister, handleRefresh, handleLogout, handleVerify, handleGetSuperAdminStats, handleGetDocuments, handleGetDocumentCounts, handleUploadDocument, handleUpdateDocumentStatus, handleSearchDocuments } from './handlers';
 
 const LATENCY_MS = import.meta.env.MODE === 'test' ? 0 : 180;
 
@@ -25,4 +25,9 @@ export const mockAuthApi: AuthApi = {
   logout: () => run(() => handleLogout(TokenStore.getRefresh() ?? undefined)),
   verify: () => run(() => handleVerify(TokenStore.getAccess() ?? undefined)),
   getSuperAdminStats: () => run(() => handleGetSuperAdminStats()),
+  getDocuments: (orgCode?: string) => run(() => handleGetDocuments(orgCode)),
+  getDocumentCounts: (orgCode?: string) => run(() => handleGetDocumentCounts(orgCode)),
+  uploadDocument: (data: UploadDocumentRequest) => run(() => handleUploadDocument(data)),
+  updateDocumentStatus: (id: string, status: DocumentStatus, reviewedBy: string) => run(() => handleUpdateDocumentStatus(id, status, reviewedBy)),
+  searchDocuments: (query: string, orgCode?: string) => run(() => handleSearchDocuments(query, orgCode)),
 };

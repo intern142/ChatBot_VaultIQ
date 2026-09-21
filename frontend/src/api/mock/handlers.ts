@@ -6,7 +6,7 @@
  * driver layers normalize everything into { error: { status, code, message } }
  * — JSON bodies for `real` mode, thrown ApiError for `mock` mode.
  */
-import { ApiError, LoginRequest, RegisterRequest, LoginResponse, RefreshResponse, VerifyResponse, SuperAdminStats } from '../types';
+import { ApiError, LoginRequest, RegisterRequest, LoginResponse, RefreshResponse, VerifyResponse, SuperAdminStats, Document, DocumentCounts, UploadDocumentRequest, DocumentStatus } from '../types';
 import { mockDb } from './db';
 import { createAccessToken, createRefreshToken, decodeAccessToken, REFRESH_TTL_S } from './tokens';
 
@@ -110,21 +110,49 @@ export function handleGetSuperAdminStats(): SuperAdminStats {
   const allUsers = mockDb.organizations.flatMap(o => o.users);
   const totalUsers = allUsers.length;
   const totalOrganizations = mockDb.organizations.length;
-  // Mock: consider all users as active for now
+  const counts = mockDb.getDocumentCounts();
   const activeUsers = totalUsers;
-  // Mock document counts (placeholder - would come from document service in real backend)
-  const totalDocuments = 156;
-  const pendingApproval = 12;
-  const approvedDocuments = 134;
 
   return {
     totalUsers,
     totalOrganizations,
     activeUsers,
-    totalDocuments,
-    pendingApproval,
-    approvedDocuments,
+    totalDocuments: counts.total,
+    pendingApproval: counts.pending,
+    approvedDocuments: counts.approved,
   };
+}
+
+export function handleGetDocuments(orgCode?: string): Document[] {
+  return mockDb.getDocuments(orgCode);
+}
+
+export function handleGetDocumentCounts(orgCode?: string): DocumentCounts {
+  return mockDb.getDocumentCounts(orgCode);
+}
+
+export function handleUploadDocument(data: UploadDocumentRequest): Document {
+  const doc = mockDb.addDocument({
+    orgCode: data.orgCode,
+    name: data.file.name,
+    originalName: data.file.name,
+    size: data.file.size,
+    mimeType: data.file.type || 'application/octet-stream',
+    status: 'pending',
+    uploadedBy: data.uploadedBy,
+    uploadedAt: new Date().toISOString(),
+  });
+  return doc;
+}
+
+export function handleUpdateDocumentStatus(id: string, status: DocumentStatus, reviewedBy: string): Document {
+  const doc = mockDb.updateDocumentStatus(id, status, reviewedBy);
+  if (!doc) throw new ApiError(404, 'Document not found', 'NOT_FOUND');
+  return doc;
+}
+
+export function handleSearchDocuments(query: string, orgCode?: string): Document[] {
+  return mockDb.searchDocuments(query, orgCode);
 }
 
 export { REFRESH_TTL_S };

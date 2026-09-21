@@ -74,6 +74,35 @@ export interface SuperAdminStats {
   approvedDocuments: number;
 }
 
+export type DocumentStatus = 'pending' | 'approved' | 'rejected';
+
+export interface Document {
+  id: string;
+  orgCode: string;
+  name: string;
+  originalName: string;
+  size: number;
+  mimeType: string;
+  status: DocumentStatus;
+  uploadedBy: string;
+  uploadedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+}
+
+export interface DocumentCounts {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+}
+
+export interface UploadDocumentRequest {
+  orgCode: string;
+  file: File;
+  uploadedBy: string;
+}
+
 export type AuthApi = {
   login: (data: LoginRequest) => Promise<LoginResponse>;
   register: (data: RegisterRequest) => Promise<LoginResponse>;
@@ -81,4 +110,9 @@ export type AuthApi = {
   logout: () => Promise<VerifyResponse>;
   verify: () => Promise<VerifyResponse>;
   getSuperAdminStats: () => Promise<SuperAdminStats>;
+  getDocuments: (orgCode?: string) => Promise<Document[]>;
+  getDocumentCounts: (orgCode?: string) => Promise<DocumentCounts>;
+  uploadDocument: (data: UploadDocumentRequest) => Promise<Document>;
+  updateDocumentStatus: (id: string, status: DocumentStatus, reviewedBy: string) => Promise<Document>;
+  searchDocuments: (query: string, orgCode?: string) => Promise<Document[]>;
 };

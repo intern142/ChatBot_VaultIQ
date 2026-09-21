@@ -26,6 +26,22 @@ export interface MockSession {
   refreshExp: number;
 }
 
+export type DocumentStatus = 'pending' | 'approved' | 'rejected';
+
+export interface MockDocument {
+  id: string;
+  orgCode: string;
+  name: string;
+  originalName: string;
+  size: number;
+  mimeType: string;
+  status: DocumentStatus;
+  uploadedBy: string;
+  uploadedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+}
+
 function seed(): MockOrg[] {
   return [
     {
@@ -48,9 +64,25 @@ function seed(): MockOrg[] {
   ];
 }
 
+function seedDocuments(): MockDocument[] {
+  const now = new Date();
+  return [
+    { id: 'doc-1', orgCode: 'ORG-12345', name: 'Employee Handbook 2024.pdf', originalName: 'Employee Handbook 2024.pdf', size: 2457600, mimeType: 'application/pdf', status: 'approved', uploadedBy: 'u-emp', uploadedAt: new Date(now.getTime() - 86400000 * 5).toISOString(), reviewedAt: new Date(now.getTime() - 86400000 * 4).toISOString(), reviewedBy: 'u-ca' },
+    { id: 'doc-2', orgCode: 'ORG-12345', name: 'Leave Policy.docx', originalName: 'Leave Policy.docx', size: 512000, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', status: 'approved', uploadedBy: 'u-emp', uploadedAt: new Date(now.getTime() - 86400000 * 10).toISOString(), reviewedAt: new Date(now.getTime() - 86400000 * 9).toISOString(), reviewedBy: 'u-ca' },
+    { id: 'doc-3', orgCode: 'ORG-12345', name: 'Security Guidelines.pdf', originalName: 'Security Guidelines.pdf', size: 1024000, mimeType: 'application/pdf', status: 'pending', uploadedBy: 'u-emp', uploadedAt: new Date(now.getTime() - 86400000 * 2).toISOString() },
+    { id: 'doc-4', orgCode: 'ORG-12345', name: 'Expense Report Template.xlsx', originalName: 'Expense Report Template.xlsx', size: 256000, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', status: 'pending', uploadedBy: 'u-ca', uploadedAt: new Date(now.getTime() - 86400000 * 1).toISOString() },
+    { id: 'doc-5', orgCode: 'ORG-12345', name: 'Onboarding Checklist.txt', originalName: 'Onboarding Checklist.txt', size: 12800, mimeType: 'text/plain', status: 'approved', uploadedBy: 'u-ca', uploadedAt: new Date(now.getTime() - 86400000 * 15).toISOString(), reviewedAt: new Date(now.getTime() - 86400000 * 14).toISOString(), reviewedBy: 'u-ca' },
+    { id: 'doc-6', orgCode: 'ORG-67890', name: 'Project Alpha Specs.pdf', originalName: 'Project Alpha Specs.pdf', size: 3145728, mimeType: 'application/pdf', status: 'approved', uploadedBy: 'u-ba', uploadedAt: new Date(now.getTime() - 86400000 * 3).toISOString(), reviewedAt: new Date(now.getTime() - 86400000 * 2).toISOString(), reviewedBy: 'u-ba' },
+    { id: 'doc-7', orgCode: 'ORG-67890', name: 'Budget Q3.xlsx', originalName: 'Budget Q3.xlsx', size: 768000, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', status: 'pending', uploadedBy: 'u-be', uploadedAt: new Date(now.getTime() - 86400000 * 1).toISOString() },
+    { id: 'doc-8', orgCode: 'ORG-67890', name: 'Contract Template.docx', originalName: 'Contract Template.docx', size: 384000, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', status: 'rejected', uploadedBy: 'u-be', uploadedAt: new Date(now.getTime() - 86400000 * 7).toISOString(), reviewedAt: new Date(now.getTime() - 86400000 * 6).toISOString(), reviewedBy: 'u-ba' },
+  ];
+}
+
 const organizations: MockOrg[] = seed();
+const documents: MockDocument[] = seedDocuments();
 const sessions = new Map<string, MockSession>();
 let nextSub = 1000;
+let nextDocId = 9;
 
 export const mockDb = {
   findOrg(code: string): MockOrg | undefined {
@@ -108,6 +140,44 @@ export const mockDb = {
       role: user.role,
       organization: org?.name ?? user.organization ?? '',
       email: user.email,
+    };
+  },
+
+  // Document methods
+  getDocuments(orgCode?: string): MockDocument[] {
+    return orgCode ? documents.filter(d => d.orgCode === orgCode) : [...documents];
+  },
+
+  getDocumentById(id: string): MockDocument | undefined {
+    return documents.find(d => d.id === id);
+  },
+
+  addDocument(doc: Omit<MockDocument, 'id'>): MockDocument {
+    const record: MockDocument = { ...doc, id: `doc-${nextDocId++}` };
+    documents.unshift(record);
+    return record;
+  },
+
+  updateDocumentStatus(id: string, status: DocumentStatus, reviewedBy: string): MockDocument | undefined {
+    const idx = documents.findIndex(d => d.id === id);
+    if (idx === -1) return undefined;
+    documents[idx] = { ...documents[idx], status, reviewedAt: new Date().toISOString(), reviewedBy };
+    return documents[idx];
+  },
+
+  searchDocuments(query: string, orgCode?: string): MockDocument[] {
+    const docs = this.getDocuments(orgCode);
+    const q = query.toLowerCase();
+    return docs.filter(d => d.name.toLowerCase().includes(q) || d.originalName.toLowerCase().includes(q));
+  },
+
+  getDocumentCounts(orgCode?: string): { total: number; pending: number; approved: number; rejected: number } {
+    const docs = this.getDocuments(orgCode);
+    return {
+      total: docs.length,
+      pending: docs.filter(d => d.status === 'pending').length,
+      approved: docs.filter(d => d.status === 'approved').length,
+      rejected: docs.filter(d => d.status === 'rejected').length,
     };
   },
 };
