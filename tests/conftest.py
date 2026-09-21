@@ -28,3 +28,30 @@ async def db_session(db_engine):
     )
     async with session_factory() as session:
         yield session
+
+
+@pytest.fixture(scope="function")
+async def app_db_engine():
+    """Engine connected as vaultiq_app role (no BYPASSRLS)."""
+    app_url = settings.DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret")
+    engine = create_async_engine(
+        app_url,
+        echo=False,
+        pool_pre_ping=True,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def app_db_session(app_db_engine):
+    """Async session as vaultiq_app role - RLS enforced."""
+    async with app_db_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
+    session_factory = async_sessionmaker(
+        app_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    async with session_factory() as session:
+        yield session
