@@ -119,6 +119,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     session = Session(
         user_id=user.id,
+        tenant_id=user.tenant_id,
         token_hash="",
         expires_at=datetime.now(timezone.utc)
         + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
@@ -163,6 +164,7 @@ async def refresh(
 
     new_session = Session(
         user_id=user.id,
+        tenant_id=user.tenant_id,
         token_hash="",
         expires_at=datetime.now(timezone.utc)
         + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
