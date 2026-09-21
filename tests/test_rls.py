@@ -383,27 +383,30 @@ class TestRLSAsync:
         """Test cross-tenant isolation using ORM with tenant context."""
         from app.database import set_tenant_context
 
-        # Create two tenants
-        tenant1 = Tenant(short_code="TEST1", name="Test Tenant 1")
-        tenant2 = Tenant(short_code="TEST2", name="Test Tenant 2")
-        app_db_session.add_all([tenant1, tenant2])
-        await app_db_session.commit()
-        await app_db_session.refresh(tenant1)
-        await app_db_session.refresh(tenant2)
+        # Use admin connection for setup (vaultiq_app has no INSERT on tenants)
+        conn = get_admin_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TEST1", "Test Tenant 1"))
+        tenant1_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TEST2", "Test Tenant 2"))
+        tenant2_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s) RETURNING id",
+            (str(tenant1_id), "user@test1.com", "hash", "employee"),
+        )
+        user1_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        # Create user for tenant1
-        user1 = User(tenant_id=tenant1.id, email="user@test1.com", password_hash="hash", role="employee")
-        app_db_session.add(user1)
-        await app_db_session.commit()
-
-        # Set context to tenant2 - should not see tenant1's user
-        await set_tenant_context(app_db_session, str(tenant2.id))
+        # Set context to tenant2 via app connection - should not see tenant1's user
+        await set_tenant_context(app_db_session, str(tenant2_id))
         result = await app_db_session.execute(text("SELECT * FROM users WHERE tenant_id IS NOT NULL"))
         rows = result.fetchall()
         assert len(rows) == 0
 
         # Set context to tenant1 - should see user
-        await set_tenant_context(app_db_session, str(tenant1.id))
+        await set_tenant_context(app_db_session, str(tenant1_id))
         result = await app_db_session.execute(text("SELECT * FROM users WHERE tenant_id IS NOT NULL"))
         rows = result.fetchall()
         assert len(rows) == 1
