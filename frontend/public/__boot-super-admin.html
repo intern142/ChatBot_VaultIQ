@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Boot Super Admin</title></head>
+<body>
+<script>
+localStorage.setItem('vaultiq_role', 'super-admin');
+localStorage.setItem('vaultiq_user', JSON.stringify({
+  name: 'Demo Super Admin', role: 'super-admin',
+  organization: 'VaultIQ Platform', email: 'super@vaultiq.com'
+}));
+location.replace('/super/tenants');
+</script>
+</body>
+</html>

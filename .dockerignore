@@ -1,0 +1,10 @@
+frontend/node_modules
+frontend/dist
+frontend/screenshots
+frontend/*.log
+frontend/build.log
+frontend/build.err
+containers
+.git
+.gitignore
+*~ 

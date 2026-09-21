@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Boot Client Admin</title></head>
+<body>
+<script>
+localStorage.setItem('vaultiq_role', 'client-admin');
+localStorage.setItem('vaultiq_user', JSON.stringify({
+  name: 'Demo Client Admin', role: 'client-admin',
+  organization: 'Acme Corp', email: 'admin@acme.com'
+}));
+location.replace('/admin/dashboard');
+</script>
+</body>
+</html>
