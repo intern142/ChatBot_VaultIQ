@@ -339,7 +339,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-3 complete)**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-4 complete)**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
 
@@ -350,7 +350,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 - All 23 tests passing (8 tenant + 15 RLS)
 
 **Completed (continued):**
-- Gate 4: Self-review checklist — acceptance criteria walked, checklist ticked, PR opened
+- Gate 4: Self-review checklist — acceptance criteria walked, checklist ticked, PR #6 opened
 
 **Acceptance Criteria Status:**
 1. ✅ Every table holding client data protected at DB level (users, sessions FORCE RLS)
