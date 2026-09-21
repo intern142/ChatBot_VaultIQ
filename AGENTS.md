@@ -131,7 +131,7 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 6: Live container verified, 8/8 tests pass
 - Gate 7: Pending (demo in sprint review)
 
-### VQ-105 — Tenant-scoped login and session tokens
+### VQ-105 — Tenant-scoped login and session tokens ✅
 - Login endpoint (POST /auth/login) with organisation_code, email, password
 - Super admin login (organisation_code=SUPER, no tenant lookup)
 - JWT access tokens with tenant_id, role, session_id
@@ -160,7 +160,7 @@ We sell this to many companies at once from one installation. Each company is a 
   - **Client Admin** (org_code=ACME): `sub=<user_id>`, `role=client_admin`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
   - **Employee** (org_code=ACME): `sub=<user_id>`, `role=employee`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
 
-### VQ-103 — Tenant context on every request
+### VQ-103 — Tenant context on every request ✅
 - `set_tenant_context` helper in `app/database.py`
 - `get_current_user_with_tenant` dependency in `app/auth/dependencies.py`
 - Suspended/offboarding tenant check in login endpoint (`app/routes/auth.py`)
@@ -173,7 +173,7 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 6: Live container verified — 5 tests passed (health, tenant login, tampered token 401, suspended tenant 403, super admin null tenant)
 - Gate 7: Pending (demo)
 
-### VQ-104 — Per-tenant document storage
+### VQ-104 — Per-tenant document storage ✅
 - Storage path: `storage/{tenant_id}/{doc_uuid}/original/{uuid}.bin` — never from uploaded filename
 - 6 endpoints: POST/GET/DELETE /documents, preview, download, usage
 - Mime allowlist (pdf, txt, md, docx, xlsx, csv), 50MB max
@@ -339,7 +339,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-4 complete)**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
 
@@ -528,7 +528,7 @@ Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
 app/
   __init__.py
   config.py          — Settings (pydantic-settings)
-  database.py        — Async SQLAlchemy engine, session, Base
+  database.py        — Async SQLAlchemy engine, session, Base + set_tenant_context
   main.py            — FastAPI app with routers
   auth/
     __init__.py
@@ -540,7 +540,7 @@ app/
     base.py
     tenant.py        — Tenant model
     user.py          — User model
-    session.py       — Session model (token tracking, revocation)
+    session.py       — Session model (token tracking, revocation, tenant_id)
     document.py      — Document model
   routes/
     __init__.py
@@ -549,23 +549,25 @@ app/
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
-    tenant.py        — TenantCreate, TenantResponse
+    tenant.py        — TenantCreate, TenantResponse, TenantStatus
     user.py          — UserCreate, UserResponse
     document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
   services/
     storage.py       — File save/delete with tenant isolation
 tests/
   __init__.py
-  conftest.py        — DB fixtures (async engine, session, db_conn)
+  conftest.py        — DB fixtures (async engine, session, db_conn, app_db_engine, app_db_session)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
   test_tenant_context.py — 5 tests for VQ-103
   test_documents.py  — 13 tests for VQ-104
+  test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
 alembic/
   env.py
   versions/
     001_initial.py   — Tenants + Users + RLS migration
     002_add_sessions.py — Sessions table + lockout columns
+    003_rls_hardening.py — FORCE RLS, vaultiq_app/vaultiq_super_admin roles
     d9ecec7d2e04_vq_104_add_documents_table_for_per_.py — Documents table + RLS
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
@@ -575,7 +577,7 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to `vq-105-tenant-login`, `vq-103-tenant-middleware`, PR to `main` or these branches
+- Triggers: push to `vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-102-rls`, PR to `main` or these branches
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
