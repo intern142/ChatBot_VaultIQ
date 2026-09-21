@@ -110,8 +110,8 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-102-rls
 - Current task: VQ-102 — Database-level tenant isolation
-- Status: **VQ-102 Gates 1-4 complete**. Gate 5 (Code review) pending. All tests passing.
-- Gate 6 Evidence (pending live container): cross-tenant reads blocked via psql with vaultiq_app role, no-tenant context returns zero rows, super_admin limited grants
+- Status: **VQ-102 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 23 tests passing.
+- Gate 6 Evidence: cross-tenant reads blocked via psql with vaultiq_app role, no-tenant context returns zero rows, super_admin limited grants, rolbypassrls=f for both roles
 
 ## Blockers
 - None
@@ -351,6 +351,13 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 **Completed (continued):**
 - Gate 4: Self-review checklist — acceptance criteria walked, checklist ticked, PR #6 opened
+- Gate 5: Pending (reviewer approval)
+- **Gate 6: Live container verified** — 23/23 tests pass, cross-tenant isolation proven via psql
+  - `vaultiq_app` with EVIDENCE_A context → sees only `admin@tenantA.com` (1 row)
+  - `vaultiq_app` querying `admin@tenantB.com` with A context → 0 rows (RLS blocks)
+  - `vaultiq_app` no tenant context → 0 rows
+  - `vaultiq_super_admin` → CAN read tenants, CANNOT read users/sessions (permission denied)
+  - `rolbypassrls = f` for both vaultiq_app and vaultiq_super_admin
 
 **Acceptance Criteria Status:**
 1. ✅ Every table holding client data protected at DB level (users, sessions FORCE RLS)
