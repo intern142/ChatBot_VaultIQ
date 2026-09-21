@@ -369,7 +369,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-4 complete)**
+### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-6 complete)**
 **Depends on:** VQ-105
 **Branch:** `vq-106-permissions`
 **PR:** #7
@@ -380,15 +380,31 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 - Gate 2: Implementation — `app/auth/permissions.py` with `ROLE_MATRIX`, `require_roles()`, `require_roles_with_tenant()`; role checks on all endpoints (commit a074126)
 - Gate 3: 21 permission tests — router walk (3), denied-role (8), allowed-role (10); 44 total tests passing (commit 224f4ac)
 - Gate 4: Self-review — all 5 acceptance criteria confirmed, PR #7 opened
+- **Gate 6: Live container verified** — permission enforcement matrix proven on running container
+
+**Gate 6 Evidence — Live Container Status Codes:**
+
+| Endpoint | client_admin | employee | super_admin |
+|----------|-------------|----------|-------------|
+| GET /documents | 200 | 200 | **403** |
+| GET /documents/usage | 200 | **403** | **403** |
+| GET /documents/{id}/preview | 404* | 404* | **403** |
+| GET /documents/{id}/download | 404* | 404* | **403** |
+| DELETE /documents/{id} | **403** | **403** | **403** |
+| POST /auth/logout | 200 | 200 | 200 |
+
+*404 = document not found (permission allowed); **403** = explicitly denied by permission matrix
+
+**Key Result:** Super Admin explicitly denied on ALL `/documents/*` endpoints — 403 returned for every document operation. Employee limited to list/preview/download. Client Admin has full access.
 
 **Acceptance Criteria Status:**
 1. ✅ Permissions document lists every operation (`PERMISSIONS.md`, `ROLE_MATRIX`)
 2. ✅ Enforcement is uniform (`require_roles()` dependency factory)
 3. ✅ Router walk test catches un-annotated endpoints
-4. ✅ Super Admin denied on all `/documents/*` (6 denied-role tests)
+4. ✅ Super Admin denied on all `/documents/*` (6 denied-role tests + live container)
 5. ✅ Employees limited to list/preview/download
 
-**Pending:** Gate 5 (code review), Gate 6 (live container verify)
+**Pending:** Gate 5 (code review), Gate 7 (demo)
 
 ---
 
@@ -460,7 +476,7 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
 | VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
-| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-4 ✅ |
+| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
 | VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | Not started |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Not started |
 
