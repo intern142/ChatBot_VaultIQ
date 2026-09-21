@@ -16,7 +16,20 @@ const ERR_SESSION = 'Session expired';
 export function handleLogin(data: LoginRequest): LoginResponse {
   const org = mockDb.findOrg(data.orgCode);
   const user = org && mockDb.findUser(data.email, data.username);
-  if (!org || !user || user.password !== data.password) {
+  
+  // Check if user exists with correct credentials in ANY org (for "Permission denied" case)
+  const userInAnyOrg = mockDb.findUser(data.email, data.username);
+  const credentialsMatch = userInAnyOrg && userInAnyOrg.password === data.password;
+
+  if (!org) {
+    if (credentialsMatch) {
+      // User exists with correct credentials but in a different org
+      throw new ApiError(403, 'Permission denied. Invalid organization code.', 'PERMISSION_DENIED');
+    }
+    throw new ApiError(401, ERR_INVALID, 'INVALID_CREDENTIALS');
+  }
+
+  if (!user || user.password !== data.password) {
     throw new ApiError(401, ERR_INVALID, 'INVALID_CREDENTIALS');
   }
 

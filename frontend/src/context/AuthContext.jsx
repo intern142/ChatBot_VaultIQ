@@ -142,6 +142,7 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (orgCode, username, email, password, userType) => {
     setError(null);
+    setWarningDismissed(false);
     setIsLoading(true);
     try {
       const res = await authApi.login({ orgCode, username, email, password, userType });
@@ -168,6 +169,7 @@ export function AuthProvider({ children }) {
 
   const register = useCallback(async (orgCode, email, password, role) => {
     setError(null);
+    setWarningDismissed(false);
     setIsLoading(true);
     try {
       const res = await authApi.register({ orgCode, email, password, role });
@@ -210,6 +212,12 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('vaultiq_failed_attempts');
   }, []);
 
+  const [warningDismissed, setWarningDismissed] = useState(false);
+
+  const dismissWarning = useCallback(() => {
+    setWarningDismissed(true);
+  }, []);
+
   const value = {
     role,
     user,
@@ -219,11 +227,13 @@ export function AuthProvider({ children }) {
     lockoutUntil,
     failedAttempts,
     error,
+    warningDismissed,
     login,
     register,
     logout,
     clearError: () => setError(null),
     clearWarning,
+    dismissWarning,
   };
 
   return (

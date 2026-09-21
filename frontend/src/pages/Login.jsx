@@ -12,7 +12,7 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [orbState, setOrbState] = useState('working');
-  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts } = useAuth();
+  const { login, isLockedOut, lockoutUntil, error, clearError, failedAttempts, warningDismissed, dismissWarning } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get('next') || '/';
@@ -100,7 +100,7 @@ export default function Login() {
             </div>
 
             <LockoutBanner lockoutUntil={isLockedOut ? lockoutUntil : 0} onClose={clearError} />
-            <LockoutWarning attempts={failedAttempts} maxAttempts={5} onClose={clearError} />
+            <LockoutWarning attempts={failedAttempts} maxAttempts={5} warningDismissed={warningDismissed} dismissWarning={dismissWarning} />
 
             <form onSubmit={handleSubmit} noValidate>
               <div className="form-group">

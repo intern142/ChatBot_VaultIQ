@@ -42,11 +42,76 @@
 
   --grid-line: rgba(0, 0, 0, 0.028);
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 8px rgba(0, 0, 0, 0.04);
+
+  /* ---- Transition tokens ---- */
+  --transition-fast: 80ms ease;
+  --transition-base: 150ms ease;
+  --transition-slow: 250ms ease;
+  --transition-spring: 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
 }
 
 html {
   scroll-behavior: smooth;
 }
+
+/* ---- Global transition utilities ---- */
+.transition-fast   { transition: all var(--transition-fast); }
+.transition-base   { transition: all var(--transition-base); }
+.transition-slow   { transition: all var(--transition-slow); }
+.transition-spring { transition: all var(--transition-spring); }
+
+.transition-colors { transition: background-color var(--transition-base), color var(--transition-base), border-color var(--transition-base), fill var(--transition-base), stroke var(--transition-base); }
+.transition-transform { transition: transform var(--transition-base); }
+.transition-opacity { transition: opacity var(--transition-base); }
+.transition-shadow { transition: box-shadow var(--transition-base); }
+.transition-all { transition: all var(--transition-base); }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Page enter/exit animations ---- */
+.page-enter { opacity: 0; transform: translateY(8px); }
+.page-enter-active { opacity: 1; transform: translateY(0); transition: opacity var(--transition-base), transform var(--transition-base); }
+.page-exit { opacity: 1; }
+.page-exit-active { opacity: 0; transform: translateY(-4px); transition: opacity var(--transition-fast), transform var(--transition-fast); }
+
+/* Fade */
+.fade-in { animation: fadeIn var(--transition-base) var(--ease-out); }
+.fade-out { animation: fadeOut var(--transition-fast) var(--ease-in); }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* Slide */
+.slide-up { animation: slideUp var(--transition-base) var(--ease-out); }
+.slide-down { animation: slideDown var(--transition-base) var(--ease-out); }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Scale */
+.scale-in { animation: scaleIn var(--transition-spring); }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+
+/* Shake (for errors) */
+.shake { animation: shake var(--transition-base) var(--ease-in-out); }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+/* Pulse (for loading) */
+.pulse { animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Spin */
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 body {
   font-family: var(--font-sans);
@@ -67,6 +132,15 @@ body {
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ---- Interactive element base transitions ---- */
+.interactive {
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.interactive:hover { }
+.interactive:active { transform: scale(0.98); }
+.interactive:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 /* ---- Layout ---- */
 .app-layout {
@@ -179,7 +253,7 @@ body {
   text-decoration: none;
   font-size: 0.9rem;
   font-weight: 500;
-  transition: background 0.12s ease;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .nav-link:hover {
@@ -230,7 +304,7 @@ body {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .logout-btn:hover {
@@ -269,7 +343,7 @@ body {
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .primary-btn:hover,
@@ -280,10 +354,19 @@ body {
   background: hsl(0 0% 20%);
 }
 
+.primary-btn:active,
+.login-btn:active,
+.placeholder-btn:active,
+.chat-input-area button:active,
+.search-bar button:active {
+  transform: scale(0.98);
+}
+
 button:disabled,
 input:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+  transform: none;
 }
 
 /* ---- Forms ---- */
@@ -313,7 +396,7 @@ input:disabled {
   color: var(--foreground);
   background: var(--card);
   outline: none;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
 }
 
 .form-group input:hover,
@@ -353,8 +436,8 @@ input:disabled {
   font-size: 0.8rem;
   font-weight: 600;
   margin-bottom: 0.6rem;
-  animation: errorSlideIn 0.2s ease;
-  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+  animation: errorSlideIn var(--transition-base) var(--ease-out);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
 }
 
 .form-error:hover {
@@ -388,8 +471,8 @@ input:disabled {
   font-size: 0.875rem;
   font-weight: 600;
   margin-bottom: 1rem;
-  animation: errorSlideIn 0.2s ease;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  animation: errorSlideIn var(--transition-base) var(--ease-out);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .lockout-warning:hover {
@@ -411,7 +494,7 @@ input:disabled {
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .lockout-warning-close:hover {
@@ -436,7 +519,7 @@ input:disabled {
   align-items: center;
   justify-content: center;
   padding: 0.75rem;
-  background: #000;
+  background: var(--background);
 }
 
 .login-split {
@@ -856,7 +939,7 @@ input:disabled {
   border: 1px solid var(--input);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -901,7 +984,7 @@ input:disabled {
   border: 1px solid var(--input);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -987,7 +1070,7 @@ input:disabled {
   font-weight: 500;
   color: var(--muted-foreground);
   cursor: pointer;
-  transition: color 0.12s ease, border-color 0.12s ease;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .tab-btn:hover {
@@ -1012,6 +1095,13 @@ input:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.25rem;
+  transition: box-shadow var(--transition-base), border-color var(--transition-base), transform var(--transition-fast);
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-soft);
+  border-color: hsl(0 0% 74%);
+  transform: translateY(-2px);
 }
 
 .stat-card h3 {
@@ -1041,6 +1131,12 @@ input:disabled {
   padding: 2.5rem;
   text-align: center;
   color: var(--muted-foreground);
+  transition: border-color var(--transition-base), background var(--transition-base);
+}
+
+.empty-state:hover {
+  border-color: hsl(0 0% 74%);
+  background: var(--secondary);
 }
 
 .empty-state p {
@@ -1055,6 +1151,12 @@ input:disabled {
   padding: 2rem;
   text-align: center;
   max-width: 480px;
+  transition: border-color var(--transition-base), background var(--transition-base);
+}
+
+.upload-box:hover {
+  border-color: var(--primary);
+  background: var(--secondary);
 }
 
 .file-input {
@@ -1098,6 +1200,13 @@ input:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
+  transition: box-shadow var(--transition-base), border-color var(--transition-base), transform var(--transition-fast);
+}
+
+.question-item:hover {
+  box-shadow: var(--shadow-soft);
+  border-color: hsl(0 0% 74%);
+  transform: translateY(-1px);
 }
 
 .q-head {
@@ -1129,6 +1238,13 @@ input:disabled {
   border-radius: var(--radius);
   padding: 1.5rem;
   max-width: 480px;
+  transition: box-shadow var(--transition-base), border-color var(--transition-base), transform var(--transition-fast);
+}
+
+.profile-card:hover {
+  box-shadow: var(--shadow-soft);
+  border-color: hsl(0 0% 74%);
+  transform: translateY(-2px);
 }
 
 /* ---- Phone width ---- */
@@ -1258,7 +1374,7 @@ input:disabled {
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--popover-foreground);
-  animation: hoverCardIn 0.12s ease-out;
+  animation: hoverCardIn var(--transition-spring);
   pointer-events: auto;
 }
 

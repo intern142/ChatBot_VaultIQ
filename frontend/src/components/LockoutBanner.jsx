@@ -31,8 +31,8 @@ export function LockoutBanner({ lockoutUntil, onClose }) {
   );
 }
 
-export function LockoutWarning({ attempts, maxAttempts = 5, onClose }) {
-  if (attempts < 3 || attempts >= maxAttempts) return null;
+export function LockoutWarning({ attempts, maxAttempts = 5, warningDismissed, dismissWarning }) {
+  if (attempts < 3 || attempts >= maxAttempts || warningDismissed) return null;
   
   const remaining = maxAttempts - attempts;
   
@@ -44,7 +44,7 @@ export function LockoutWarning({ attempts, maxAttempts = 5, onClose }) {
       <button 
         type="button" 
         className="lockout-warning-close" 
-        onClick={onClose}
+        onClick={dismissWarning}
         aria-label="Dismiss warning"
       >
         ✕

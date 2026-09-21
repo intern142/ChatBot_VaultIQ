@@ -40,9 +40,9 @@ describe('auth login endpoint', () => {
     );
   });
 
-  it('rejects bad org / unknown user with 401 INVALID_CREDENTIALS', async () => {
+  it('rejects correct credentials with wrong org code → 403 PERMISSION_DENIED', async () => {
     await expect(authApi.login({ ...seeded.admin, orgCode: 'ORG-XXXXX' })).rejects.toSatisfy(
-      (e) => e.status === 401 && e.code === 'INVALID_CREDENTIALS'
+      (e) => e.status === 403 && e.code === 'PERMISSION_DENIED'
     );
   });
 });
