@@ -110,9 +110,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-107-tenant-lifecycle
 - Current task: VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin
-- Status: **VQ-107 Gate 1 complete, Gate 2 in progress**. Migration 004 applied, Invite/AuditLog models created.
+- Status: **VQ-107 Gates 1-4, 6 complete, PR #8 open**. Gate 5 (review) and Gate 7 (demo) pending.
 - Gate 1 Evidence: Approach note written (APPROACH_VQ107.md)
-- Gate 2 Evidence: Migration 004_tenant_lifecycle.py applied — adds storage_quota_mb to tenants, creates invites & audit_logs tables with FORCE RLS, grants to vaultiq_app
+- Gate 3 Evidence: 65/65 tests pass; 21 new lifecycle tests (tests/test_tenant_lifecycle.py)
+- Gate 4 Evidence: Self-review VQ107_SELF_REVIEW.md, PR #8
+- Gate 6 Evidence: Full create → invite → accept → suspend → refused sequence proven on live container
 
 ## Blockers
 - None
@@ -411,9 +413,10 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-3 complete)**
+### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
 **Depends on:** VQ-105, VQ-106
 **Branch:** `vq-107-tenant-lifecycle`
+**PR:** #8
 **Note:** Tracked as Sprint 3 in Asana but Sprint 2 here per our plan.
 **Objective:** The platform operator can bring a new client organisation onto VaultIQ, pause it, and resume it, without touching the database by hand — and without needing internet or email.
 
@@ -427,6 +430,21 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
   - Tenant short_code format validation (2-20 uppercase alnum) + 409 on duplicate
   - audit_logs actor_role now VARCHAR(50) — accept_invite writes actor_role='system' (not in user_role enum)
 - Gate 3: Written and green — `tests/test_tenant_lifecycle.py`, 21 tests. Full suite **65 passed**. Covers: create/duplicate/format, invite accept + login, one-time reuse, expiry, suspend revokes sessions in one request, reactivate, state machine, audit trail, permission denial on /admin, RLS invite isolation (tenant context vs code lookup vs insert blocked without context).
+- Gate 4: Self-review — all 5 acceptance criteria walked and confirmed (`VQ107_SELF_REVIEW.md`), PR #8 opened
+- **Gate 6: Live container verified** — full sequence proven on the running system (`uvicorn app.main:app` on 127.0.0.1:8000, Docker PG 5433):
+
+**Gate 6 Evidence — Live Container Sequence:**
+1. `POST /auth/login` SUPER → `role=super_admin`, `tenant_id=null`
+2. `POST /admin/tenants` (OMEGA, 2048MB) → `201 status=active`
+3. `POST /admin/tenants/{id}/invite` → 43-char code, `expires_at` +7 days
+4. `POST /invite/accept` → `"Invite accepted successfully", tenant_id=<OMEGA>, user_id=<...>`
+5. `POST /auth/login` OMEGA → `role=client_admin`
+6. `PATCH /admin/tenants/{id}/suspend` → `status=suspended`
+7. Pre-suspend client-admin token → **401** on next request
+8. Fresh login while suspended → **403**
+9. Re-accept of used invite → **400**
+10. `PATCH /admin/tenants/{id}/reactivate` → `status=active`; login → **200**
+11. `GET /admin/tenants/{id}/audit` → `reactivate_tenant[super_admin] -> suspend_tenant[super_admin] -> accept_invite[system] -> create_invite[super_admin] -> create_tenant[super_admin]`
 
 **Acceptance Criteria:**
 1. Create a tenant with code, name and storage quota
@@ -555,7 +573,7 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 |------|-------------|------------|--------|
 | VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
-| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-2 in progress** (migration applied, models created) |
+| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Not started |
 
 **Must Be True by Friday:**
@@ -692,11 +710,10 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to `vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-102-rls`, PR to `main` or these branches
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
-- Triggers include `vq-104-storage-namespace` branch
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
