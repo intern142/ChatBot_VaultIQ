@@ -108,10 +108,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-102-rls
-- Current task: VQ-102 — Database-level tenant isolation
-- Status: **VQ-102 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 23 tests passing.
-- Gate 6 Evidence: cross-tenant reads blocked via psql with vaultiq_app role, no-tenant context returns zero rows, super_admin limited grants, rolbypassrls=f for both roles
+- Current branch: vq-107-tenant-lifecycle
+- Current task: VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin
+- Status: **VQ-107 Gate 1 complete, Gate 2 in progress**. Migration 004 applied, Invite/AuditLog models created.
+- Gate 1 Evidence: Approach note written (APPROACH_VQ107.md)
+- Gate 2 Evidence: Migration 004_tenant_lifecycle.py applied — adds storage_quota_mb to tenants, creates invites & audit_logs tables with FORCE RLS, grants to vaultiq_app
 
 ## Blockers
 - None
@@ -436,7 +437,70 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 | 7 | Demo & sign-off — Friday evening. |
 
 ---
- 
+
+## VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin (Detailed)
+**Note:** This is **VQ-107**, not HX-107. Asana shows it as HX-107 but we are not using HX in this application. The correct story ID is **VQ-107**.
+**[BE][W2][P0][5pt]**
+
+### Objective
+The platform operator can bring a new client organisation onto VaultIQ, pause it, and resume it, without touching the database by hand — and without needing internet or email.
+
+### Acceptance Criteria
+1. Create a tenant with code, name and storage quota
+2. Suspend: every active session of that tenant stops working immediately and logins are refused; reactivate reverses it
+3. Invite the first Client Admin: the system produces a one-time, time-limited invite the operator can hand over on screen; if an internal mail relay is configured it may also be sent
+4. Accepting the invite lets the person set a password and become that tenant's Client Admin
+5. Every action is recorded in the audit trail with who did it
+
+### Must Be Proven
+- Automated tests: invite cannot be reused or used after expiry; suspend takes effect within one request; tenant code uniqueness and format
+- Evidence from the live container of the full create → invite → accept → suspend → refused sequence
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — Post a plan: endpoints, invite code design, suspend semantics. Reviewer approves first. |
+| 2 | Implement — Branch `vq-107-tenant-lifecycle`. |
+| 3 | Tests written and green — Invite reuse/expiry, suspend revokes sessions, slug validation. Full suite green. |
+| 4 | Self-review checklist — Tick Common mistakes. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Create tenant, invite, accept, suspend, confirm 403 — all on the live container. Paste evidence. |
+| 7 | Demo & sign-off — Friday evening. |
+
+### Approach Note Summary (APPROACH_VQ107.md)
+**Database Changes (Migration 004):**
+- Add `storage_quota_mb` to `tenants` table
+- New table: `invites` (tenant_id, email, code, expires_at, used_at, created_by, created_at) with FORCE RLS
+- New table: `audit_logs` (tenant_id, actor_user_id, actor_role, action, target_type, target_id, details, created_at) with FORCE RLS
+
+**Endpoints:**
+- Admin Router (`/admin`, super_admin only):
+  - POST /admin/tenants — Create tenant
+  - GET /admin/tenants — List all tenants
+  - PATCH /admin/tenants/{id}/suspend — Suspend tenant (revoke all sessions)
+  - PATCH /admin/tenants/{id}/reactivate — Reactivate tenant
+  - POST /admin/tenants/{id}/invite — Create invite for first Client Admin
+  - GET /admin/tenants/{id}/audit — Get audit log for tenant
+- Public Invite Acceptance:
+  - POST /invite/accept — Accept invite (code, password) → create user as client_admin
+
+**Invite Code Design:**
+- Cryptographically secure random string (32 bytes → 43 char base64url)
+- One-time use (`used_at` set on accept)
+- Time-limited (`expires_at`, default 168 hours = 7 days)
+- Tied to specific tenant and email
+
+**Suspend Semantics:**
+- Update tenant status to `suspended`
+- Immediately revoke ALL sessions for that tenant
+- Login endpoint already checks tenant.status in (suspended, offboarding) → 403
+- Reactivate: status=active (sessions already revoked, users must log in again)
+
+**Audit Trail:**
+- Every admin action writes to audit_logs with actor, action, target, details
+
+---
+
 ## VQ-110 — Cross-tenant isolation test suite v1 (Detailed)
 **Note:** This is **VQ-110**, not HX-110. Asana shows it as HX-110 but we are not using HX in this application. The correct story ID is **VQ-110**.
 **[BE][W2][P0][5pt]**
@@ -477,7 +541,7 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 |------|-------------|------------|--------|
 | VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
-| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | Not started |
+| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-2 in progress** (migration applied, models created) |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Not started |
 
 **Must Be True by Friday:**
@@ -506,10 +570,12 @@ Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
 - Lockout: 5 failed attempts → 15 min lockout
 
 ## Database Tables
-- tenants: id, short_code, name, status, timestamps
+- tenants: id, short_code, name, status, storage_quota_mb, timestamps
 - users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
 - sessions: id, user_id (FK), tenant_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
+- invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
+- audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
 
 ## RLS Policy
 - Enabled on users table (FORCE ROW LEVEL SECURITY)
@@ -517,6 +583,10 @@ Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
 - Enabled on sessions table (FORCE ROW LEVEL SECURITY)
 - Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
 - Enabled on documents table (FORCE ROW LEVEL SECURITY)
+- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
+- Enabled on invites table (FORCE ROW LEVEL SECURITY)
+- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
+- Enabled on audit_logs table (FORCE ROW LEVEL SECURITY)
 - Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
 
 ## Auth Endpoints
@@ -545,6 +615,7 @@ app/
     password.py      — bcrypt hash/verify + strength validation
     jwt.py           — create_access_token, decode_token (PyJWT)
     dependencies.py  — get_current_user FastAPI dependency
+    permissions.py   — ROLE_MATRIX, require_roles()
   models/
     __init__.py
     base.py
@@ -552,6 +623,8 @@ app/
     user.py          — User model
     session.py       — Session model (token tracking, revocation, tenant_id)
     document.py      — Document model
+    invite.py        — Invite model
+    audit_log.py     — AuditLog model
   routes/
     __init__.py
     auth.py          — Login, refresh, logout endpoints
@@ -572,6 +645,7 @@ tests/
   test_tenant_context.py — 5 tests for VQ-103
   test_documents.py  — 13 tests for VQ-104
   test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
+  test_permissions.py — 21 tests for VQ-106
 alembic/
   env.py
   versions/
@@ -579,6 +653,8 @@ alembic/
     002_add_sessions.py — Sessions table + lockout columns
     003_rls_hardening.py — FORCE RLS, vaultiq_app/vaultiq_super_admin roles
     d9ecec7d2e04_vq_104_add_documents_table_for_per_.py — Documents table + RLS
+    a1340d9f596a_merge_vq_102_rls_hardening_and_vq_104_.py — Merge migration
+    004_tenant_lifecycle.py — Invites, audit_logs, storage_quota_mb
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/

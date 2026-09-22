@@ -9,12 +9,13 @@ from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.session import Session
-from app.auth.password import verify_password
+from app.models.invite import Invite
+from app.auth.password import verify_password, hash_password, validate_password_strength
 from app.auth.jwt import create_access_token, decode_token
 from app.auth.dependencies import get_current_user
 from app.auth.permissions import require_roles
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, MessageResponse
-from app.schemas.tenant import TenantStatus
+from app.schemas.tenant import TenantStatus, InviteAcceptRequest, InviteAcceptResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -215,3 +216,80 @@ async def logout(
         await db.commit()
 
     return MessageResponse(detail="Logged out")
+
+
+@router.post("/invite/accept", response_model=InviteAcceptResponse)
+async def accept_invite(
+    request: InviteAcceptRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Accept an invite and create the first Client Admin user for a tenant."""
+    # Validate password strength
+    errors = validate_password_strength(request.password)
+    if errors:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(errors))
+
+    # Find valid invite
+    result = await db.execute(
+        select(Invite).where(
+            Invite.code == request.code,
+            Invite.used_at.is_(None),
+            Invite.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    invite = result.scalar_one_or_none()
+
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired invite")
+
+    # Check if tenant already has a client_admin
+    result = await db.execute(
+        select(User).where(User.tenant_id == invite.tenant_id, User.role == "client_admin")
+    )
+    existing_admin = result.scalar_one_or_none()
+    if existing_admin:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant already has a Client Admin")
+
+    # Check if user with this email already exists for this tenant
+    result = await db.execute(
+        select(User).where(User.tenant_id == invite.tenant_id, User.email == invite.email)
+    )
+    existing_user = result.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User with this email already exists")
+
+    # Create the Client Admin user
+    user = User(
+        tenant_id=invite.tenant_id,
+        email=invite.email,
+        password_hash=hash_password(request.password),
+        role="client_admin",
+    )
+    db.add(user)
+    await db.flush()
+
+    # Mark invite as used
+    invite.used_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    # Write audit log (using admin connection since no tenant context)
+    from app.models.audit_log import AuditLog
+    audit = AuditLog(
+        tenant_id=invite.tenant_id,
+        actor_user_id=None,  # System action
+        actor_role="system",
+        action="accept_invite",
+        target_type="user",
+        target_id=user.id,
+        details={"email": user.email, "invite_id": str(invite.id)},
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return InviteAcceptResponse(
+        detail="Invite accepted successfully. You can now log in.",
+        tenant_id=invite.tenant_id,
+        user_id=user.id,
+    )

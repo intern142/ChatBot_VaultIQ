@@ -20,6 +20,7 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     # Public endpoints (no auth required)
     ("GET", "/health"): {"super_admin", "client_admin", "employee"},
     ("POST", "/auth/login"): {"super_admin", "client_admin", "employee"},
+    ("POST", "/auth/invite/accept"): {"super_admin", "client_admin", "employee"},  # Public - no auth
 
     # Auth — any authenticated user
     ("POST", "/auth/refresh"): {"super_admin", "client_admin", "employee"},
@@ -32,6 +33,14 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/preview"): {"client_admin", "employee"},
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
+
+    # Admin — super_admin only
+    ("POST", "/admin/tenants"): {"super_admin"},
+    ("GET", "/admin/tenants"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/suspend"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
+    ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
+    ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
 }
 
 

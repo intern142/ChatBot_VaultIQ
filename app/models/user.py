@@ -32,6 +32,7 @@ class User(Base):
     )
 
     documents = relationship("Document", back_populates="uploader", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="actor", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"
