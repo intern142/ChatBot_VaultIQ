@@ -199,6 +199,8 @@ We sell this to many companies at once from one installation. Each company is a 
 - Migrations: Alembic
 - Auth: PyJWT (VQ-105)
 - CI: GitHub Actions (PostgreSQL service, alembic, pytest)
+- Invite codes: `secrets.token_bytes(32)` → 43-char base64url, one-time, 7-day expiry
+- Database access: app runs as `vaultiq` (dev superuser/BYPASSRLS); `vaultiq_app` role (NOBYPASSRLS) is the production app identity and is proven by RLS tests
 
 ---
 
@@ -409,10 +411,22 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt]
+### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-3 complete)**
 **Depends on:** VQ-105, VQ-106
+**Branch:** `vq-107-tenant-lifecycle`
 **Note:** Tracked as Sprint 3 in Asana but Sprint 2 here per our plan.
 **Objective:** The platform operator can bring a new client organisation onto VaultIQ, pause it, and resume it, without touching the database by hand — and without needing internet or email.
+
+**Completed:**
+- Gate 1: Approach note — `APPROACH_VQ107.md` (endpoints, invite code design, suspend semantics, risks)
+- Gate 2: Implementation complete (commit 1b5971a, then Gate 2/3 fixes)
+  - Migration 004 + 005 — invites & audit_logs tables (FORCE RLS), storage_quota_mb, actor_role as text, invite code-lookup RLS policy (`app.invite_accept_code`), tenants SELECT grant for vaultiq_app
+  - Admin router `app/routes/admin.py` — POST/GET /admin/tenants, suspend, reactivate, invite, audit (super_admin only)
+  - Public `POST /invite/accept` in `app/routes/invite.py` — creates first Client Admin, one-time / time-limited
+  - Admin endpoints set tenant context (`set_tenant_context`) so writes pass FORCE RLS under vaultiq_app too
+  - Tenant short_code format validation (2-20 uppercase alnum) + 409 on duplicate
+  - audit_logs actor_role now VARCHAR(50) — accept_invite writes actor_role='system' (not in user_role enum)
+- Gate 3: Written and green — `tests/test_tenant_lifecycle.py`, 21 tests. Full suite **65 passed**. Covers: create/duplicate/format, invite accept + login, one-time reuse, expiry, suspend revokes sessions in one request, reactivate, state machine, audit trail, permission denial on /admin, RLS invite isolation (tenant context vs code lookup vs insert blocked without context).
 
 **Acceptance Criteria:**
 1. Create a tenant with code, name and storage quota
@@ -595,6 +609,17 @@ Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
 - POST /auth/logout — Revoke session (requires valid Bearer token)
 - GET /health — Health check (no auth required)
 
+## Admin Endpoints (super_admin only)
+- POST /admin/tenants — Create tenant (short_code, name, storage_quota_mb)
+- GET /admin/tenants — List all tenants (no RLS filter)
+- PATCH /admin/tenants/{id}/suspend — Suspend: status=suspended, revoke ALL sessions
+- PATCH /admin/tenants/{id}/reactivate — Reactivate: status=active
+- POST /admin/tenants/{id}/invite — Create one-time, time-limited invite for first Client Admin
+- GET /admin/tenants/{id}/audit — Audit log for tenant
+
+## Public Invite Endpoint
+- POST /invite/accept — Accept invite (code, password) → creates client_admin, marks invite used
+
 ## Document Endpoints
 - POST /documents — Upload file (multipart, validates mime/size)
 - GET /documents — List documents (paginated, tenant-scoped)
@@ -629,6 +654,8 @@ app/
     __init__.py
     auth.py          — Login, refresh, logout endpoints
     documents.py     — Document CRUD, preview, download, usage
+    admin.py         — Tenant lifecycle (create/suspend/reactivate/invite/audit) — super_admin only
+    invite.py        — POST /invite/accept — public invite acceptance
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
@@ -646,6 +673,7 @@ tests/
   test_documents.py  — 13 tests for VQ-104
   test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
   test_permissions.py — 21 tests for VQ-106
+  test_tenant_lifecycle.py — 21 tests for VQ-107
 alembic/
   env.py
   versions/
@@ -655,6 +683,7 @@ alembic/
     d9ecec7d2e04_vq_104_add_documents_table_for_per_.py — Documents table + RLS
     a1340d9f596a_merge_vq_102_rls_hardening_and_vq_104_.py — Merge migration
     004_tenant_lifecycle.py — Invites, audit_logs, storage_quota_mb
+    005_invite_code_lookup.py — Invite code RLS policy, audit actor_role text, tenants grant
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/

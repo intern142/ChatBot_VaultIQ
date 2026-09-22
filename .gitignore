@@ -8,3 +8,7 @@ venv/
 dist/
 build/
 .pytest_cache/
+storage/
+*.log
+tokens.txt
+fix_hash.py

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+import re
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from uuid import UUID
 from datetime import datetime
 from enum import Enum
@@ -22,6 +23,16 @@ class TenantCreate(BaseModel):
     short_code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=255)
     storage_quota_mb: Optional[int] = Field(None, ge=0)
+
+    @field_validator("short_code")
+    @classmethod
+    def validate_short_code(cls, v: str) -> str:
+        code = v.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,20}", code):
+            raise ValueError(
+                "Short code must be 2-20 characters: uppercase letters and digits only"
+            )
+        return code
 
 
 class TenantResponse(BaseModel):

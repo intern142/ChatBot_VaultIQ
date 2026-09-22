@@ -20,7 +20,7 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     # Public endpoints (no auth required)
     ("GET", "/health"): {"super_admin", "client_admin", "employee"},
     ("POST", "/auth/login"): {"super_admin", "client_admin", "employee"},
-    ("POST", "/auth/invite/accept"): {"super_admin", "client_admin", "employee"},  # Public - no auth
+    ("POST", "/invite/accept"): {"super_admin", "client_admin", "employee"},  # Public - no auth
 
     # Auth — any authenticated user
     ("POST", "/auth/refresh"): {"super_admin", "client_admin", "employee"},

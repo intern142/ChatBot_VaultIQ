@@ -9,11 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.exc import IntegrityError
+
 from app.database import get_db, set_tenant_context
 from app.auth.dependencies import get_current_user
 from app.auth.permissions import require_roles
-from app.models.tenant import Tenant, TenantStatus
+from app.models.tenant import Tenant
 from app.models.user import User
+from app.schemas.tenant import TenantStatus
 from app.models.session import Session
 from app.models.invite import Invite
 from app.models.audit_log import AuditLog
@@ -75,7 +78,17 @@ async def create_tenant(
         status=TenantStatus.active,
     )
     db.add(tenant)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tenant short code already exists",
+        )
+
+    # Set tenant context so the audit entry passes RLS even under vaultiq_app
+    await set_tenant_context(db, str(tenant.id))
 
     await write_audit_log(
         db=db,
@@ -129,6 +142,9 @@ async def suspend_tenant(
     if tenant.status == TenantStatus.purged:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot suspend purged tenant")
 
+    # Set tenant context so session revocation and audit entry pass RLS
+    await set_tenant_context(db, str(tenant_id))
+
     # Revoke all sessions for this tenant
     await db.execute(
         delete(Session).where(Session.tenant_id == tenant_id)
@@ -168,6 +184,9 @@ async def reactivate_tenant(
 
     if tenant.status != TenantStatus.suspended:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant is not suspended")
+
+    # Set tenant context so the audit entry passes RLS
+    await set_tenant_context(db, str(tenant_id))
 
     tenant.status = TenantStatus.active
     await db.flush()
@@ -228,6 +247,9 @@ async def create_invite(
 
     expires_at = datetime.now(timezone.utc) + timedelta(hours=request.expires_in_hours)
     code = generate_invite_code()
+
+    # Set tenant context so invite + audit inserts pass RLS even under vaultiq_app
+    await set_tenant_context(db, str(tenant_id))
 
     invite = Invite(
         tenant_id=tenant_id,
