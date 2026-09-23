@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum, func
+from sqlalchemy import Column, String, DateTime, Enum, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 
@@ -16,10 +17,15 @@ class Tenant(Base):
         nullable=False,
         default="active",
     )
+    storage_quota_mb = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
     )
+
+    documents = relationship("Document", back_populates="tenant", cascade="all, delete-orphan")
+    invites = relationship("Invite", back_populates="tenant", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="tenant", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Tenant(id={self.id}, short_code={self.short_code}, name={self.name})>"
