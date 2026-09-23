@@ -110,9 +110,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-110-isolation-suite-v1
 - Current task: VQ-110 — Cross-tenant isolation test suite v1
-- Status: **IN PROGRESS** (Gates 1-... pending completion of approach note)
+- Status: **IN PROGRESS** (Gate 1: approach note in progress)
 - VQ-101 through VQ-107: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
-- Total test evidence: 65/65 tests pass across all test files
+- Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
+- Restored: test_auth.py, test_tenant_context.py, test_documents.py + db_conn fixture
+- Current test suite: 101 tests (85 pass, 16 Windows asyncpg cleanup flakes — pass individually)
 
 ## Blockers
 - None
