@@ -110,14 +110,54 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-110-isolation-suite-v1
 - Current task: VQ-110 — Cross-tenant isolation test suite v1
-- Status: **IN PROGRESS** (Gate 1: approach note in progress)
+- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅)
 - VQ-101 through VQ-107: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
 - Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
 - Restored: test_auth.py, test_tenant_context.py, test_documents.py + db_conn fixture
-- Current test suite: 101 tests (85 pass, 16 Windows asyncpg cleanup flakes — pass individually)
+- Current test suite: **137 tests — ALL PASS** (3 consecutive full runs)
 
 ## Blockers
-- None
+- NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
+
+## VQ-110 Progress (Current Task)
+### Gate 1: Approach Note ✅
+- `APPROACH_VQ110.md` written — fixture design, route manifest, coverage guard, test matrix, body leak checks
+
+### Gate 2: Implementation ✅
+- Created `tests/test_isolation_suite.py` — full cross-tenant isolation test suite
+- Updated `tests/conftest.py` — fixtures create Session rows for JWT tokens (fixes 401 auth issues)
+- `tests/isolation_manifest.py` — route manifest (single source of truth) already existed
+
+**Test Coverage:**
+- 2 fully populated tenants (A & B) with admin/employee users, documents, invites, sessions
+- Coverage guard test (`test_route_coverage_guard`) — auto-discovers FastAPI routes, fails if any tenant-scoped route missing from manifest
+- Cross-tenant tests for all routes in manifest:
+  - Public: `/health`, `/auth/login`, `/invite/accept`
+  - Authenticated: `/auth/refresh`, `/auth/logout`
+  - Documents: POST/GET/GET/{id}/preview, GET/{id}/download, DELETE/{id}, GET/usage
+  - Admin: POST/GET /admin/tenants, PATCH /admin/tenants/{id}/suspend|reactivate|invite, GET /admin/tenants/{id}/audit
+- Body leak checks (`assert_no_cross_tenant_leak`) — verify no tenant B identifiers/content in responses
+- Tenant detection: `token_fixture.startswith("token_a")` correctly identifies tenant
+
+**Test Results:**
+- Full suite: **137 passed** — 3 consecutive full runs (was 85 pass / 16 flakes before event loop fix)
+
+### Gate 3: Tests Green ✅
+- Full suite: `python -m pytest tests/ -q` → **137 passed** (3 consecutive full runs, ~2.5 min each)
+- Coverage report: `VQ110_COVERAGE.md` — every tenant-scoped operation mapped to its exercising test, all 17 routes in manifest covered
+- Coverage guard (`test_route_coverage_guard`) proves adding an operation without covering it in the suite fails CI
+
+**Fixes applied during Gate 3:**
+- `conftest.py`: Windows `WindowsSelectorEventLoopPolicy` + session-scoped `event_loop` fixture — fixes asyncpg event-loop flakes (`'NoneType' object has no attribute 'send'`, `Event loop is closed`)
+- `conftest.py`: invite fixtures now create fresh tenants (INVTA/INVTB) — tenants A/B already had client admins so invites returned 400
+- `test_documents.py`: fixtures `employee` → `client_admin` (DELETE + usage are client_admin-only post-VQ-106)
+- `test_isolation_suite.py`: invite accept test verifies fresh tenant invite binds only to its tenant (no leak); admin-denied test eagerly resolves `token_b_*` (was crashing: fixture resolution inside running async loop)
+
+### Next Gates (Pending)
+- Gate 4: Self-review — walk acceptance criteria, tick checklist, open PR
+- Gate 5: Code review
+- Gate 6: Live container verify
+- Gate 7: Demo Friday
 
 ## Completed
 ### VQ-101 — Tenant data model and migration ✅
