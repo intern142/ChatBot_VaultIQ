@@ -110,8 +110,8 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-201-tenant-upload
 - Current task: VQ-201 — Document upload, tenant-scoped, with quota
-- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅)
-- PR: to be opened after self-review
+- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅, Gate 4 ✅)
+- PR: **#10 open** (https://github.com/intern142/ChatBot_VaultIQ/pull/10)
 - VQ-101 through VQ-110: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
 - Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
 - Restored: test_auth.py, test_tenant_context.py, test_documents.py + db_conn fixture
@@ -678,7 +678,7 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 - **Gate 1**: Approach note ✅ (`APPROACH_VQ201.md`)
 - **Gate 2**: Implementation ✅ (committed to vq-201-tenant-upload)
 - **Gate 3**: Tests green ✅ — **144 tests pass** (full suite)
-- **Gate 4**: Self-review pending
+- **Gate 4**: Self-review ✅ (`VQ201_SELF_REVIEW.md`, PR #10)
 - **Gate 5**: Code review pending
 - **Gate 6**: Live container verify pending
 - **Gate 7**: Demo Friday pending
@@ -696,7 +696,7 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
 | VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Gates 1-4, 6 ✅ |
-| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-3 ✅** |
+| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-4 ✅** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
