@@ -13,6 +13,29 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_PORT: int = 8000
     STORAGE_ROOT: str = "./storage"
+    MAX_FILE_SIZE_MB: int = 50
+    # MIME types allowed based on file CONTENT (python-magic), not just extension/header
+    ALLOWED_MIME_TYPES: str = (
+        "application/pdf,"
+        "text/plain,"
+        "text/markdown,"
+        "application/msword,"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+        "application/vnd.ms-excel,"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+        "text/csv,"
+        "application/vnd.ms-powerpoint,"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+        "application/vnd.oasis.opendocument.text,"
+        "application/vnd.oasis.opendocument.spreadsheet,"
+        "application/rtf,"
+        "application/epub+zip,"
+        "application/vnd.ms-outlook,"
+        "message/rfc822,"
+        "image/tiff,"
+        "image/png,"
+        "image/jpeg"
+    )
 
     class Config:
         env_file = ".env"

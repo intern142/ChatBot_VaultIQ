@@ -26,8 +26,8 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("POST", "/auth/refresh"): {"super_admin", "client_admin", "employee"},
     ("POST", "/auth/logout"): {"super_admin", "client_admin", "employee"},
 
-    # Documents — tenant users only (super admin DENIED)
-    ("POST", "/documents"): {"client_admin", "employee"},
+    # Documents — tenant users only (super admin DENIED, employee DENIED on upload)
+    ("POST", "/documents"): {"client_admin"},
     ("GET", "/documents"): {"client_admin", "employee"},
     ("GET", "/documents/usage"): {"client_admin"},
     ("GET", "/documents/{document_id}/preview"): {"client_admin", "employee"},

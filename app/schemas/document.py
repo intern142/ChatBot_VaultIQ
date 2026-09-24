@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal
 from pydantic import BaseModel, ConfigDict
 import uuid
 
@@ -8,6 +8,7 @@ class DocumentBase(BaseModel):
     original_filename: str
     mime_type: str
     size_bytes: int
+    category: Literal['policy', 'hr', 'sop', 'process', 'other']
 
 
 class DocumentCreate(DocumentBase):

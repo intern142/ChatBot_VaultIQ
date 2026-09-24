@@ -17,7 +17,7 @@ class Tenant(Base):
         nullable=False,
         default="active",
     )
-    storage_quota_mb = Column(Integer, nullable=True)
+    storage_quota_mb = Column(Integer, nullable=False, default=2048)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()

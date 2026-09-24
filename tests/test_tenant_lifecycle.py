@@ -141,7 +141,7 @@ async def test_create_tenant_and_audit_log(client, super_admin_token):
 
 @pytest.mark.asyncio
 async def test_create_tenant_duplicate_code_conflict(client, super_admin_token):
-    payload = {"short_code": "ACME", "name": "Acme Corp"}
+    payload = {"short_code": "ACME", "name": "Acme Corp", "storage_quota_mb": 2048}
     res1 = await client.post("/admin/tenants", json=payload, headers={"Authorization": f"Bearer {super_admin_token}"})
     assert res1.status_code == 201
     res2 = await client.post("/admin/tenants", json=payload, headers={"Authorization": f"Bearer {super_admin_token}"})
@@ -164,7 +164,7 @@ async def test_list_tenants_shows_all(client, super_admin_token):
     for code in ("ALFA", "BETA"):
         res = await client.post(
             "/admin/tenants",
-            json={"short_code": code, "name": code},
+            json={"short_code": code, "name": code, "storage_quota_mb": 2048},
             headers={"Authorization": f"Bearer {super_admin_token}"},
         )
         assert res.status_code == 201
@@ -181,7 +181,7 @@ async def test_list_tenants_shows_all(client, super_admin_token):
 async def _create_tenant_and_invite(client, token, code="NEXUS", email="admin@nexus.io"):
     res = await client.post(
         "/admin/tenants",
-        json={"short_code": code, "name": "Nexus Ltd"},
+        json={"short_code": code, "name": "Nexus Ltd", "storage_quota_mb": 2048},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201
@@ -411,7 +411,7 @@ async def test_audit_records_lifecycle_actions(client, super_admin_token):
 @pytest.mark.asyncio
 async def test_non_super_admin_denied_on_admin_endpoints(client, db_conn):
     cur = db_conn.cursor()
-    cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("ZXQ", "Zqx"))
+    cur.execute("INSERT INTO tenants (short_code, name, storage_quota_mb) VALUES (%s, %s, %s) RETURNING id", ("ZXQ", "Zqx", 2048))
     tenant_id = str(cur.fetchone()[0])
     db_conn.commit()
 
@@ -447,9 +447,9 @@ def test_admin_endpoints_declared_super_admin_only_in_matrix():
 
 def _seed_invite_policy_data(db_conn):
     cur = db_conn.cursor()
-    cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("POLA", "Pol A"))
+    cur.execute("INSERT INTO tenants (short_code, name, storage_quota_mb) VALUES (%s, %s, %s) RETURNING id", ("POLA", "Pol A", 2048))
     t1 = str(cur.fetchone()[0])
-    cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("POLB", "Pol B"))
+    cur.execute("INSERT INTO tenants (short_code, name, storage_quota_mb) VALUES (%s, %s, %s) RETURNING id", ("POLB", "Pol B", 2048))
     t2 = str(cur.fetchone()[0])
 
     cur.execute(

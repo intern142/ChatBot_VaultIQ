@@ -154,11 +154,11 @@ class TestAllowedRoles:
         assert "client_admin" in roles
         assert "employee" in roles
 
-    def test_upload_allows_client_admin_and_employee(self):
-        """Upload is allowed for tenant users only."""
+    def test_upload_allows_client_admin_only(self):
+        """Upload is allowed for client_admin only (not employee, not super_admin)."""
         roles = ROLE_MATRIX[("POST", "/documents")]
         assert "client_admin" in roles
-        assert "employee" in roles
+        assert "employee" not in roles
         assert "super_admin" not in roles
 
     def test_list_allows_client_admin_and_employee(self):

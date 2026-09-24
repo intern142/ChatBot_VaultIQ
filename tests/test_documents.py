@@ -65,6 +65,33 @@ def user_b(db_conn, tenant_b):
 
 
 @pytest.fixture
+def employee_a(db_conn, tenant_a):
+    cur = db_conn.cursor()
+    cur.execute(
+        "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s) RETURNING id",
+        (str(tenant_a), "employee_a@tenant_a.com", hash_password("StrongPass1!"), "employee"),
+    )
+    user_id = cur.fetchone()[0]
+    db_conn.commit()
+    return user_id
+
+
+@pytest.fixture
+def employee_a_token(client: httpx.AsyncClient, tenant_a, employee_a):
+    async def _get_token():
+        response = await client.post(
+            "/auth/login",
+            json={
+                "organisation_code": "TENANT_A",
+                "email": "employee_a@tenant_a.com",
+                "password": "StrongPass1!",
+            },
+        )
+        return response.json()["access_token"]
+    return _get_token
+
+
+@pytest.fixture
 def tenant_a_token(client: httpx.AsyncClient, tenant_a, user_a):
     async def _get_token():
         response = await client.post(
@@ -100,30 +127,35 @@ class TestDocumentUpload:
         token = await tenant_a_token()
         file_content = b"This is a test document content"
         files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
 
         response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         assert response.status_code == 201
-        data = response.json()
-        assert data["original_filename"] == "test.txt"
-        assert data["mime_type"] == "text/plain"
-        assert data["size_bytes"] == len(file_content)
-        assert "id" in data
-        assert "stored_filename" in data
+        resp_data = response.json()
+        assert resp_data["original_filename"] == "test.txt"
+        assert resp_data["mime_type"] == "text/plain"
+        assert resp_data["size_bytes"] == len(file_content)
+        assert "id" in resp_data
+        assert "stored_filename" in resp_data
+        assert resp_data["category"] == "policy"
 
     @pytest.mark.asyncio
     async def test_upload_rejects_disallowed_mime_type(self, client: httpx.AsyncClient, tenant_a_token):
         token = await tenant_a_token()
         file_content = b"<?php echo 'evil'; ?>"
         files = {"file": ("evil.php", io.BytesIO(file_content), "application/x-php")}
+        data = {"category": "policy"}
 
         response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         assert response.status_code == 415
 
@@ -132,11 +164,13 @@ class TestDocumentUpload:
         token = await tenant_a_token()
         large_content = b"x" * (60 * 1024 * 1024)  # 60MB
         files = {"file": ("large.txt", io.BytesIO(large_content), "text/plain")}
+        data = {"category": "policy"}
 
         response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         assert response.status_code == 413
 
@@ -145,19 +179,65 @@ class TestDocumentUpload:
         token = await tenant_a_token()
         file_content = b"test"
         files = {"file": ("../../etc/passwd", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
+
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 201
+
+        # Verify stored filename is UUID-based, not the user-provided filename
+        resp_data = response.json()
+        stored_filename = resp_data["stored_filename"]
+        assert "../../etc/passwd" not in stored_filename
+        assert "passwd" not in stored_filename
+
+    @pytest.mark.asyncio
+    async def test_upload_rejects_missing_category(self, client: httpx.AsyncClient, tenant_a_token):
+        token = await tenant_a_token()
+        file_content = b"test"
+        files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        # No category provided
 
         response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
         )
-        assert response.status_code == 201
+        assert response.status_code == 422  # FastAPI validation error
 
-        # Verify stored filename is UUID-based, not the user-provided filename
-        data = response.json()
-        stored_filename = data["stored_filename"]
-        assert "../../etc/passwd" not in stored_filename
-        assert "passwd" not in stored_filename
+    @pytest.mark.asyncio
+    async def test_upload_rejects_invalid_category(self, client: httpx.AsyncClient, tenant_a_token):
+        token = await tenant_a_token()
+        file_content = b"test"
+        files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "invalid_category"}
+
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_upload_employee_forbidden(self, client: httpx.AsyncClient, employee_a_token):
+        token = await employee_a_token()
+        file_content = b"test"
+        files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
+
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 403
 
 
 class TestDocumentList:
@@ -167,7 +247,8 @@ class TestDocumentList:
 
         # Upload a document first
         files = {"file": ("doc1.txt", io.BytesIO(b"content1"), "text/plain")}
-        await client.post("/documents", headers={"Authorization": f"Bearer {token}"}, files=files)
+        data = {"category": "policy"}
+        await client.post("/documents", headers={"Authorization": f"Bearer {token}"}, files=files, data=data)
 
         # List documents
         response = await client.get(
@@ -175,11 +256,12 @@ class TestDocumentList:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        data = response.json()
-        assert data["total"] >= 1
-        assert len(data["documents"]) >= 1
-        assert data["page"] == 1
-        assert data["page_size"] == 20
+        resp_data = response.json()
+        assert resp_data["total"] >= 1
+        assert len(resp_data["documents"]) >= 1
+        assert resp_data["page"] == 1
+        assert resp_data["page_size"] == 20
+        assert resp_data["documents"][0]["category"] == "policy"
 
 
 class TestDocumentPreview:
@@ -188,11 +270,13 @@ class TestDocumentPreview:
         token = await tenant_a_token()
         content = "This is a test document for preview. " * 100
         files = {"file": ("preview.txt", io.BytesIO(content.encode()), "text/plain")}
+        data = {"category": "policy"}
 
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -201,9 +285,9 @@ class TestDocumentPreview:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        data = response.json()
-        assert "preview" in data
-        assert data["truncated"] is True or len(data["preview"]) <= 5000
+        resp_data = response.json()
+        assert "preview" in resp_data
+        assert resp_data["truncated"] is True or len(resp_data["preview"]) <= 5000
 
 
 class TestDocumentDownload:
@@ -212,11 +296,13 @@ class TestDocumentDownload:
         token = await tenant_a_token()
         content = b"Download test content"
         files = {"file": ("download.txt", io.BytesIO(content), "text/plain")}
+        data = {"category": "policy"}
 
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -239,10 +325,12 @@ class TestCrossTenantAccess:
 
         # Tenant A uploads a document
         files = {"file": ("secret.txt", io.BytesIO(b"Tenant A secret"), "text/plain")}
+        data = {"category": "policy"}
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token_a}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -261,10 +349,12 @@ class TestCrossTenantAccess:
         token_b = await tenant_b_token()
 
         files = {"file": ("secret.txt", io.BytesIO(b"Tenant A secret"), "text/plain")}
+        data = {"category": "policy"}
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token_a}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -282,10 +372,12 @@ class TestCrossTenantAccess:
         token_b = await tenant_b_token()
 
         files = {"file": ("secret.txt", io.BytesIO(b"Tenant A secret"), "text/plain")}
+        data = {"category": "policy"}
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token_a}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -301,11 +393,13 @@ class TestDocumentDelete:
     async def test_delete_document(self, client: httpx.AsyncClient, tenant_a_token):
         token = await tenant_a_token()
         files = {"file": ("todelete.txt", io.BytesIO(b"delete me"), "text/plain")}
+        data = {"category": "policy"}
 
         upload_response = await client.post(
             "/documents",
             headers={"Authorization": f"Bearer {token}"},
             files=files,
+            data=data,
         )
         doc_id = upload_response.json()["id"]
 
@@ -333,10 +427,12 @@ class TestStorageUsage:
         for i in range(3):
             content = f"Document {i} content".encode()
             files = {"file": (f"doc{i}.txt", io.BytesIO(content), "text/plain")}
+            data = {"category": "policy"}
             await client.post(
                 "/documents",
                 headers={"Authorization": f"Bearer {token}"},
                 files=files,
+                data=data,
             )
 
         response = await client.get(
@@ -344,10 +440,10 @@ class TestStorageUsage:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        data = response.json()
-        assert data["total_documents"] >= 3
-        assert data["total_size_bytes"] > 0
-        assert data["total_size_mb"] >= 0
+        resp_data = response.json()
+        assert resp_data["total_documents"] >= 3
+        assert resp_data["total_size_bytes"] > 0
+        assert resp_data["total_size_mb"] >= 0
 
 
 class TestPathTraversal:
@@ -368,14 +464,105 @@ class TestPathTraversal:
 
         for filename in malicious_filenames:
             files = {"file": (filename, io.BytesIO(b"test"), "text/plain")}
+            data = {"category": "policy"}
             response = await client.post(
                 "/documents",
                 headers={"Authorization": f"Bearer {token}"},
                 files=files,
+                data=data,
             )
             assert response.status_code == 201
-            data = response.json()
-            stored = data["stored_filename"]
+            resp_data = response.json()
+            stored = resp_data["stored_filename"]
             assert ".." not in stored
             assert "/" not in stored
             assert "\\" not in stored
+
+
+class TestQuotaEnforcement:
+    @pytest.mark.asyncio
+    async def test_quota_exceeded_rejects_upload(self, client: httpx.AsyncClient, tenant_a_token, db_conn):
+        """Test that upload is rejected when tenant quota would be exceeded."""
+        token = await tenant_a_token()
+        
+        # Set tenant quota to very small (1KB)
+        cur = db_conn.cursor()
+        cur.execute("UPDATE tenants SET storage_quota_mb = 0.001 WHERE short_code = 'TENANT_A'")
+        db_conn.commit()
+        
+        # Upload a file that exceeds quota
+        file_content = b"x" * 2000  # 2KB
+        files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
+        
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 413
+        assert "quota exceeded" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_quota_allows_within_limit(self, client: httpx.AsyncClient, tenant_a_token, db_conn):
+        """Test that upload succeeds when within quota."""
+        token = await tenant_a_token()
+        
+        # Set tenant quota to 1MB
+        cur = db_conn.cursor()
+        cur.execute("UPDATE tenants SET storage_quota_mb = 1 WHERE short_code = 'TENANT_A'")
+        db_conn.commit()
+        
+        # Upload a small file
+        file_content = b"x" * 100  # 100 bytes
+        files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
+        
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 201
+
+
+class TestContentBasedMimeDetection:
+    @pytest.mark.asyncio
+    async def test_mime_mismatch_rejected(self, client: httpx.AsyncClient, tenant_a_token):
+        """Test that file with mismatched content vs header is rejected."""
+        token = await tenant_a_token()
+        
+        # PHP content with .txt extension and text/plain content-type
+        file_content = b"<?php echo 'evil'; ?>"
+        files = {"file": ("evil.txt", io.BytesIO(file_content), "text/plain")}
+        data = {"category": "policy"}
+        
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        # Should be rejected because content is detected as application/x-php
+        assert response.status_code == 415
+
+    @pytest.mark.asyncio
+    async def test_valid_pdf_accepted(self, client: httpx.AsyncClient, tenant_a_token):
+        """Test that valid PDF content is accepted."""
+        token = await tenant_a_token()
+        
+        # Minimal valid PDF content
+        file_content = b"%PDF-1.4\n%EOF\n"
+        files = {"file": ("test.pdf", io.BytesIO(file_content), "application/pdf")}
+        data = {"category": "policy"}
+        
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 201
+        assert response.json()["mime_type"] == "application/pdf"

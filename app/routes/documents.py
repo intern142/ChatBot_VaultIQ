@@ -1,7 +1,8 @@
 import uuid
 import mimetypes
+import magic
 from typing import BinaryIO
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query, Form
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
 from app.models.document import Document
 from app.models.user import User
+from app.models.tenant import Tenant
 from app.schemas.document import (
     DocumentResponse,
     DocumentListResponse,
@@ -20,47 +22,101 @@ from app.services.storage import (
     delete_document_file,
     get_document_file_path,
 )
+from app.config import get_settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-ALLOWED_MIME_TYPES = {
-    "application/pdf",
-    "text/plain",
-    "text/markdown",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv",
-}
+settings = get_settings()
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+# Parse allowed MIME types from settings (comma-separated string)
+ALLOWED_MIME_TYPES = {m.strip() for m in settings.ALLOWED_MIME_TYPES.split(",") if m.strip()}
+
+MAX_FILE_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
-def validate_file(file: UploadFile) -> None:
+def validate_file_size(file: UploadFile) -> None:
     if file.size and file.size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024*1024)}MB"
+            detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
         )
 
-    mime_type = file.content_type
-    if mime_type not in ALLOWED_MIME_TYPES:
+
+def validate_mime_type(file: UploadFile) -> str:
+    """Validate MIME type from file CONTENT using python-magic.
+    
+    Returns the detected MIME type if allowed.
+    Raises HTTPException if not allowed or detection fails.
+    """
+    # Read first 8192 bytes for MIME detection
+    file.file.seek(0)
+    header = file.file.read(8192)
+    file.file.seek(0)
+
+    if not header:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file"
+        )
+
+    detected_mime = magic.from_buffer(header, mime=True)
+
+    if detected_mime not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_MIME_TYPES))}"
+            detail=f"Unsupported file type: {detected_mime}. Allowed: {', '.join(sorted(ALLOWED_MIME_TYPES))}"
+        )
+
+    return detected_mime
+
+
+async def check_quota(db: AsyncSession, tenant_id: uuid.UUID, additional_bytes: int) -> None:
+    """Check if tenant has enough quota for additional bytes.
+    
+    Raises HTTPException 413 if quota would be exceeded.
+    """
+    # Get current usage
+    usage_result = await db.execute(
+        select(func.coalesce(func.sum(Document.size_bytes), 0))
+        .where(Document.tenant_id == tenant_id)
+    )
+    current_bytes = usage_result.scalar() or 0
+
+    # Get tenant quota
+    quota_result = await db.execute(
+        select(Tenant.storage_quota_mb).where(Tenant.id == tenant_id)
+    )
+    quota_mb = quota_result.scalar() or 0
+    quota_bytes = quota_mb * 1024 * 1024
+
+    if current_bytes + additional_bytes > quota_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Storage quota exceeded. Used: {current_bytes / (1024*1024):.2f}MB, "
+                   f"Quota: {quota_mb}MB, File: {additional_bytes / (1024*1024):.2f}MB"
         )
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
-    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
+    category: str = Form(...),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user, tenant_id = current_user_tenant
+    current_user, tenant_id_str = current_user_tenant
+    tenant_id = uuid.UUID(tenant_id_str)
 
-    validate_file(file)
+    # Validate category
+    valid_categories = {"policy", "hr", "sop", "process", "other"}
+    if category not in valid_categories:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid category. Must be one of: {', '.join(sorted(valid_categories))}"
+        )
+
+    # Validate file size (fast check from header)
+    validate_file_size(file)
 
     if not file.filename:
         raise HTTPException(
@@ -68,13 +124,20 @@ async def upload_document(
             detail="Filename is required"
         )
 
+    # Validate MIME type from CONTENT (authoritative check)
+    detected_mime = validate_mime_type(file)
+
+    # Check quota BEFORE saving file
+    await check_quota(db, tenant_id, file.size or 0)
+
     document_id = uuid.uuid4()
-    stored_filename = f"{document_id}{mimetypes.guess_extension(file.content_type) or '.bin'}"
+    extension = mimetypes.guess_extension(detected_mime) or ".bin"
+    stored_filename = f"{document_id}{extension}"
 
     # Save file to disk
     file_path = save_uploaded_file(
         file.file,
-        uuid.UUID(tenant_id),
+        tenant_id,
         document_id,
         stored_filename
     )
@@ -82,15 +145,19 @@ async def upload_document(
     # Get actual size
     actual_size = file_path.stat().st_size
 
+    # Double-check quota with actual size (in case file.size was wrong)
+    await check_quota(db, tenant_id, actual_size - (file.size or 0))
+
     # Create document record
     document = Document(
         id=document_id,
-        tenant_id=uuid.UUID(tenant_id),
+        tenant_id=tenant_id,
         original_filename=file.filename,
         stored_filename=stored_filename,
-        mime_type=file.content_type or "application/octet-stream",
+        mime_type=detected_mime,
         size_bytes=actual_size,
         uploaded_by=current_user.id,
+        category=category,
     )
     db.add(document)
     await db.commit()

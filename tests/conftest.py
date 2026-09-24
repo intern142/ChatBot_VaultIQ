@@ -263,8 +263,9 @@ async def doc_a(async_client, token_a_admin):
     """Upload a document for tenant A."""
     file_content = b"Tenant A document content"
     files = {"file": ("test_a.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_a_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
@@ -274,8 +275,9 @@ async def doc_b(async_client, token_b_admin):
     """Upload a document for tenant B."""
     file_content = b"Tenant B document content"
     files = {"file": ("test_b.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_b_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
