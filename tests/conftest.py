@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 if sys.platform == "win32":
@@ -107,9 +108,20 @@ async def app_db_session(app_db_engine):
 
 @pytest_asyncio.fixture(scope="function")
 async def async_client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
-        yield ac
+    """Test client.
+
+    In-process ASGI transport by default. When LIVE_BASE_URL is set (Gate 6
+    live-container verification), use a real HTTP client against the running
+    server so the exact suite CI runs also exercises the live container.
+    """
+    base_url = os.environ.get("LIVE_BASE_URL")
+    if base_url:
+        async with AsyncClient(base_url=base_url) as ac:
+            yield ac
+    else:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+            yield ac
 
 
 @pytest_asyncio.fixture(scope="function")
