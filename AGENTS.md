@@ -110,7 +110,7 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Project State
 - Current branch: vq-110-isolation-suite-v1
 - Current task: VQ-110 — Cross-tenant isolation test suite v1
-- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅, Gate 4 ✅)
+- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅, Gate 4 ✅, Gate 6 ✅)
 - PR: **#9 open** (https://github.com/intern142/ChatBot_VaultIQ/pull/9) — CI **green** (137 passed on Actions runner)
 - VQ-101 through VQ-107: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
 - Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
@@ -165,9 +165,15 @@ We sell this to many companies at once from one installation. Each company is a 
 - `requirements.txt`: added `email-validator==2.1.0` — `app/schemas/tenant.py` uses pydantic `EmailStr`
 - `alembic/versions/006_sessions_tenant_nullable.py`: `sessions.tenant_id` is NULL for super-admin sessions (VQ-101 AC3, model `nullable=True`), but migration 002 declared NOT NULL so fresh migrations (CI) rejected super-admin logins/fixtures; older/local DBs were already nullable. Round-trip upgrade→downgrade→upgrade verified
 
+### Gate 6: Live Container Verify ✅
+- Started uvicorn `app.main:app` against Docker PG (port 5433) on 127.0.0.1:8000
+- Ran full isolation suite with `LIVE_BASE_URL=http://127.0.0.1:8000` → **36/36 passed**
+- uvicorn access log: **1672 real HTTP requests** over the wire (not in-process), including cross-tenant `GET /documents/{id}/preview|download` → **404 Not Found** with body `{"detail":"Document not found"}` (refusal without existence leak)
+- Super-admin auth has a pre-existing RLS bug (users table FORCE RLS filters NULL-tenant in `get_current_user`); isolation suite itself passes because it uses token-based cross-tenant checks that don't require super-admin admin endpoints
+
 ### Next Gates (Pending)
 - Gate 5: Code review
-- Gate 6: Live container verify
+- Gate 6: Live container verify ✅ — **isolation suite (36 tests) passed against live uvicorn**; uvicorn log shows 1672 real HTTP requests including cross-tenant 404 refusals
 - Gate 7: Demo Friday
 
 ## Completed
