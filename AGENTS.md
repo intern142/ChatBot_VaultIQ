@@ -108,14 +108,14 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-110-isolation-suite-v1
-- Current task: VQ-110 — Cross-tenant isolation test suite v1
-- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅, Gate 4 ✅, Gate 6 ✅)
-- PR: **#9 open** (https://github.com/intern142/ChatBot_VaultIQ/pull/9) — CI **green** (137 passed on Actions runner)
-- VQ-101 through VQ-107: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
+- Current branch: vq-201-tenant-upload
+- Current task: VQ-201 — Document upload, tenant-scoped, with quota
+- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅)
+- PR: to be opened after self-review
+- VQ-101 through VQ-110: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
 - Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
 - Restored: test_auth.py, test_tenant_context.py, test_documents.py + db_conn fixture
-- Current test suite: **137 tests — ALL PASS** (3 consecutive full runs + CI green on PR #9)
+- Current test suite: **144 tests — ALL PASS** (3 consecutive full runs)
 
 ## Blockers
 - NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
@@ -620,7 +620,71 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 | 7 | Demo & sign-off — Friday evening. |
  
 ---
- 
+
+## VQ-201 — Document upload, tenant-scoped, with quota (Detailed)
+**Note:** This is **VQ-201**, not HX-201. Asana shows it as HX-201 but we are not using HX in this application. The correct story ID is **VQ-201**.
+**[BE][W3][P0][3pt]**
+
+### Objective
+A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
+
+### Acceptance Criteria
+1. The existing 12 formats and the scanned-document (OCR) path still work
+2. Each upload records a category (Policy / HR / SOP / Process / Other)
+3. Per-file size limit and per-tenant storage quota are enforced; nothing is written when a limit is exceeded and the user gets a clear reason
+4. File type is judged from the file's actual content, not only its name
+5. Employees cannot upload
+
+### Must Be Proven
+- Automated tests: quota exceeded, type mismatch, employee refused
+- Evidence from the live container of one upload per format as Client Admin
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — Post a plan: upload flow, quota check order, MIME validation. Reviewer approves first. |
+| 2 | Implement — Branch `vq-201-tenant-upload`. |
+| 3 | Tests written and green — Quota, MIME mismatch, Employee 403. Full suite green. |
+| 4 | Self-review checklist — Tick Common mistakes. Open PR. |
+| 5 | Code review (reviewer, not intern) |
+| 6 | Verify on live rebuilt container — Upload each of the 12 formats on the live container as Client Admin; paste results. |
+| 7 | Demo and sign-off |
+
+### Implementation Summary
+- **Migration 007**: Added `category` column to documents (enum: policy, hr, sop, process, other); made `storage_quota_mb` non-nullable with default 2048 MB
+- **Content-based MIME detection**: Added `python-magic-bin` for libmagic-based detection from file content (not header)
+- **Category parameter**: Required `category` form field in POST /documents (enum validated)
+- **Quota enforcement**: Pre-upload check against `tenant.storage_quota_mb`; 413 with clear message if exceeded
+- **Role restriction**: Updated ROLE_MATRIX — POST /documents now allows only `client_admin` (employees get 403)
+- **12 formats + OCR**: Expanded ALLOWED_MIME_TYPES to 18 types covering PDF, DOCX, XLSX, PPTX, ODT, ODS, RTF, EPUB, MSG, EML, TIFF, PNG, JPEG, TXT, MD, CSV
+- **Tests**: 20 tests covering upload success, category validation, quota, MIME mismatch, employee forbidden, cross-tenant isolation, path traversal
+
+### Files Changed
+- `alembic/versions/007_vq201_document_category_quota.py` — migration
+- `app/models/document.py` — category column
+- `app/models/tenant.py` — storage_quota_mb non-nullable with default
+- `app/schemas/document.py` — category in DocumentCreate/Response
+- `app/routes/documents.py` — upload logic with MIME detection, quota, category
+- `app/auth/permissions.py` — ROLE_MATRIX updated for POST /documents
+- `app/config.py` — MAX_FILE_SIZE_MB, ALLOWED_MIME_TYPES settings
+- `requirements.txt` — added python-magic-bin
+- `tests/test_documents.py` — 20 tests (was 13)
+- `tests/test_tenant.py` — added storage_quota_mb to fixtures
+- `tests/test_tenant_lifecycle.py` — added storage_quota_mb to API calls
+- `tests/test_isolation_suite.py` — updated upload tests for category + employee 403
+- `tests/test_permissions.py` — updated upload permission expectation
+
+### Gate Status
+- **Gate 1**: Approach note ✅ (`APPROACH_VQ201.md`)
+- **Gate 2**: Implementation ✅ (committed to vq-201-tenant-upload)
+- **Gate 3**: Tests green ✅ — **144 tests pass** (full suite)
+- **Gate 4**: Self-review pending
+- **Gate 5**: Code review pending
+- **Gate 6**: Live container verify pending
+- **Gate 7**: Demo Friday pending
+
+---
+
 ## Sprint 2 Summary
 
 **Objective:** Database itself refuses cross-tenant reads — even if code has bugs. Roles enforced everywhere. Automated test proves A can't touch B. Can create/suspend customers.
@@ -631,7 +695,8 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 | VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
 | VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
-| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | In progress |
+| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Gates 1-4, 6 ✅ |
+| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-3 ✅** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
@@ -645,7 +710,7 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
-Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
+Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110 → VQ-201
 ```
 
 ## Key Decisions
