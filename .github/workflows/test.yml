@@ -2,9 +2,10 @@ name: Tests
 
 on:
   push:
-    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace]
+push:
+    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle]
   pull_request:
-    branches: [main, vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace]
+    branches: [main]
 
 jobs:
   test:
@@ -56,7 +57,7 @@ jobs:
         env:
           PGPASSWORD: vaultiq_secret
         run: |
-          psql -h localhost -U vaultiq -d vaultiq -c "CREATE ROLE vaultiq_app WITH LOGIN PASSWORD 'vaultiq_secret';"
+psql -h localhost -U vaultiq -d vaultiq -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'vaultiq_app') THEN CREATE ROLE vaultiq_app WITH LOGIN PASSWORD 'vaultiq_secret'; END IF; END \$\$;"
           psql -h localhost -U vaultiq -d vaultiq -c "GRANT USAGE ON SCHEMA public TO vaultiq_app;"
           psql -h localhost -U vaultiq -d vaultiq -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vaultiq_app;"
           psql -h localhost -U vaultiq -d vaultiq -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vaultiq_app;"

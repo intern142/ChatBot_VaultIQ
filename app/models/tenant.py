@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import List
-from sqlalchemy import String, DateTime, Enum, func, ForeignKey
+from sqlalchemy import String, DateTime, Enum, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -22,6 +22,7 @@ class Tenant(Base):
         nullable=False,
         default="active",
     )
+    storage_quota_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=2048)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -35,8 +36,12 @@ class Tenant(Base):
     documents: Mapped[List['Document']] = relationship(
         'Document', back_populates='tenant', lazy='dynamic'
     )
-
-    documents = relationship("Document", back_populates="tenant", cascade="all, delete-orphan")
+    invites: Mapped[List['Invite']] = relationship(
+        'Invite', back_populates='tenant', cascade="all, delete-orphan"
+    )
+    audit_logs: Mapped[List['AuditLog']] = relationship(
+        'AuditLog', back_populates='tenant', cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Tenant(id={self.id}, short_code={self.short_code}, name={self.name})>"

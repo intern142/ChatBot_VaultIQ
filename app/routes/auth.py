@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.session import Session
-from app.auth.password import verify_password
+from app.auth.password import verify_password, hash_password, validate_password_strength
 from app.auth.jwt import create_access_token, decode_token
 from app.auth.dependencies import get_current_user
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, MessageResponse
