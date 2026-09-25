@@ -64,6 +64,16 @@ def db_conn():
 
 
 @pytest.fixture(scope="function")
+def app_db_conn():
+    """Sync connection as vaultiq_app role (no BYPASSRLS) for RLS testing."""
+    app_url = settings.DATABASE_URL_SYNC.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret")
+    conn = psycopg2.connect(app_url)
+    conn.autocommit = False
+    yield conn
+    conn.close()
+
+
+@pytest.fixture(scope="function")
 async def db_engine():
     engine = create_async_engine(
         settings.DATABASE_URL,
@@ -253,8 +263,8 @@ def token_b_emp(tenant_b):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def super_admin_token(db_engine):
-    async with db_engine.begin() as conn:
+async def super_admin_token(db_conn):
+    async with test_app_engine.begin() as conn:
         result = await conn.execute(text("""
             INSERT INTO users (tenant_id, email, password_hash, role)
             VALUES (NULL, 'super@vaultiq.com', :ph, 'super_admin')

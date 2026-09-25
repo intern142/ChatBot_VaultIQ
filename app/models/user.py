@@ -41,7 +41,7 @@ class User(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-documents: Mapped[List['Document']] = relationship(
+    documents: Mapped[List['Document']] = relationship(
         'Document', back_populates='uploader', lazy='dynamic'
     )
     sessions: Mapped[List['Session']] = relationship(

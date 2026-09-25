@@ -224,6 +224,9 @@ async def create_invite(
     if tenant.status != TenantStatus.active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only invite for active tenants")
 
+    # Set tenant context so queries pass RLS even under vaultiq_app
+    await set_tenant_context(db, str(tenant_id))
+
     # Check if tenant already has a client_admin
     result = await db.execute(
         select(User).where(User.tenant_id == tenant_id, User.role == "client_admin")

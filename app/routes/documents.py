@@ -55,7 +55,7 @@ def validate_file(file: UploadFile) -> None:
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
-    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
     db: AsyncSession = Depends(get_db),
 ):
     current_user, tenant_id = current_user_tenant
