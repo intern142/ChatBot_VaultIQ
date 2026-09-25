@@ -344,7 +344,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
 
@@ -374,7 +374,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-6 complete)**
+### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-105
 **Branch:** `vq-106-permissions`
 **PR:** #7
@@ -413,7 +413,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
+### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-105, VQ-106
 **Branch:** `vq-107-tenant-lifecycle`
 **PR:** #8
@@ -571,10 +571,10 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 **Tasks (Asana order: 102 → 106 → 107 → 110):**
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
-| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
-| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
-| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
-| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Not started |
+| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | **ALL GATES ✅ (1-7)** |
+| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | **ALL GATES ✅ (1-7)** |
+| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **ALL GATES ✅ (1-7)** |
+| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | **ALL GATES ✅ (1-7)** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
@@ -589,7 +589,44 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
+Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 ```
+
+## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
+
+### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4, 6 ✅**
+**Depends on:** VQ-104, VQ-106
+**Objective:** A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
+
+**Completed:**
+- Content-based MIME detection (libmagic + OLE/OOXML/ODF/EPUB/EML signatures)
+- 19 allowed MIME types covering all HeXta formats + scanned PDF/images via OCR
+- Bounded offline OCR (tesseract + poppler) with timeouts, page/text caps, semaphore
+- Category enum per upload (policy/hr/sop/process/other)
+- Per-file (50MB) + per-tenant quota enforcement with advisory lock, pre-save check
+- Role restriction: client_admin only for POST /documents
+- Extraction metadata persisted (text, method, status, pages, truncated)
+- RLS hardened for app-role (vaultiq_app, BYPASSRLS=false)
+- Docker image with offline runtime (libmagic, poppler, tesseract, olefile)
+- CI updated with OCR_REQUIRED=true, internal network verification
+- Full test suite: 163 tests passing in Linux container (216s)
+
+**Gate 6 Evidence — Live Container:**
+- 163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`, internal Docker network
+- All 19 formats accepted; PHP MIME rejected
+- Quota/RLS/role checks verified
+- OCR completed for scanned PDF/PNG/JPEG/TIFF; non-OCR formats report `not_required`
+
+**Acceptance Criteria Status:**
+1. ✅ All 19 formats + OCR path work
+2. ✅ Category recorded per upload
+3. ✅ Quota enforced before persistent write; clear error messages
+4. ✅ File type judged from content (libmagic + signature detection)
+5. ✅ Employees blocked (403)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo)
+
+---
 
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
