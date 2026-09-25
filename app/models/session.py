@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 
@@ -24,6 +25,8 @@ class Session(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User", back_populates="sessions")
 
     def __repr__(self):
         return f"<Session(id={self.id}, user_id={self.user_id}, is_revoked={self.is_revoked})>"

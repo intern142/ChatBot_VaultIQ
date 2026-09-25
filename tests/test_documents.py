@@ -45,7 +45,7 @@ def user_a(db_conn, tenant_a):
     cur = db_conn.cursor()
     cur.execute(
         "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s) RETURNING id",
-        (str(tenant_a), "usera@tenant_a.com", hash_password("StrongPass1!"), "employee"),
+        (str(tenant_a), "usera@tenant_a.com", hash_password("StrongPass1!"), "client_admin"),
     )
     user_id = cur.fetchone()[0]
     db_conn.commit()
@@ -87,6 +87,33 @@ def tenant_b_token(client: httpx.AsyncClient, tenant_b, user_b):
             json={
                 "organisation_code": "TENANT_B",
                 "email": "userb@tenant_b.com",
+                "password": "StrongPass1!",
+            },
+        )
+        return response.json()["access_token"]
+    return _get_token
+
+
+@pytest.fixture
+def user_b_admin(db_conn, tenant_b):
+    cur = db_conn.cursor()
+    cur.execute(
+        "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s) RETURNING id",
+        (str(tenant_b), "adminb@tenant_b.com", hash_password("StrongPass1!"), "client_admin"),
+    )
+    user_id = cur.fetchone()[0]
+    db_conn.commit()
+    return user_id
+
+
+@pytest.fixture
+def tenant_b_admin_token(client: httpx.AsyncClient, tenant_b, user_b_admin):
+    async def _get_token():
+        response = await client.post(
+            "/auth/login",
+            json={
+                "organisation_code": "TENANT_B",
+                "email": "adminb@tenant_b.com",
                 "password": "StrongPass1!",
             },
         )
@@ -276,10 +303,10 @@ class TestCrossTenantAccess:
 
     @pytest.mark.asyncio
     async def test_cross_tenant_delete_returns_404(
-        self, client: httpx.AsyncClient, tenant_a_token, tenant_b_token
+        self, client: httpx.AsyncClient, tenant_a_token, tenant_b_admin_token
     ):
         token_a = await tenant_a_token()
-        token_b = await tenant_b_token()
+        token_b = await tenant_b_admin_token()
 
         files = {"file": ("secret.txt", io.BytesIO(b"Tenant A secret"), "text/plain")}
         upload_response = await client.post(
