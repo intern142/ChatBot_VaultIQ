@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from app.schemas.tenant import UserRole
@@ -12,12 +12,11 @@ class UserCreate(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     tenant_id: UUID | None
     email: str
     role: UserRole
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
