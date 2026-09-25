@@ -2,6 +2,7 @@ import pytest
 import pytest_asyncio
 import psycopg2
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import text
 from app.config import get_settings
 from app import database
 
