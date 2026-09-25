@@ -17,7 +17,7 @@ class Session(Base):
     tenant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     token_hash = Column(String(255), nullable=False)
     is_revoked = Column(Boolean, nullable=False, default=False)

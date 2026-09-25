@@ -7,6 +7,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.auth.dependencies import get_current_user_with_tenant
+from app.auth.permissions import require_roles_with_tenant
 from app.models.document import Document
 from app.models.user import User
 from app.schemas.document import (
@@ -54,7 +55,7 @@ def validate_file(file: UploadFile) -> None:
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     current_user, tenant_id = current_user_tenant
@@ -102,7 +103,7 @@ async def upload_document(
 async def list_documents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant_id = current_user_tenant
@@ -135,7 +136,7 @@ async def list_documents(
 
 @router.get("/usage", response_model=StorageUsageResponse)
 async def get_storage_usage(
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant_id = current_user_tenant
@@ -162,7 +163,7 @@ async def get_storage_usage(
 @router.get("/{document_id}/preview")
 async def preview_document(
     document_id: uuid.UUID,
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant_id = current_user_tenant
@@ -217,7 +218,7 @@ async def preview_document(
 @router.get("/{document_id}/download")
 async def download_document(
     document_id: uuid.UUID,
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant_id = current_user_tenant
@@ -256,7 +257,7 @@ async def download_document(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: uuid.UUID,
-    current_user_tenant: tuple[User, str] = Depends(get_current_user_with_tenant),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant_id = current_user_tenant

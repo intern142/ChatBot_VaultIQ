@@ -44,6 +44,9 @@ class User(Base):
     documents: Mapped[List['Document']] = relationship(
         'Document', back_populates='uploader', lazy='dynamic'
     )
+    sessions: Mapped[List['Session']] = relationship(
+        'Session', back_populates='user', lazy='dynamic'
+    )
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"

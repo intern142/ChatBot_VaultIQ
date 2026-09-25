@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.database import get_db, set_tenant_context
 from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -118,6 +118,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     session = Session(
         user_id=user.id,
+        tenant_id=user.tenant_id,
         token_hash="",
         expires_at=datetime.now(timezone.utc)
         + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
@@ -160,6 +161,7 @@ async def refresh(
 
     new_session = Session(
         user_id=user.id,
+        tenant_id=user.tenant_id,
         token_hash="",
         expires_at=datetime.now(timezone.utc)
         + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
