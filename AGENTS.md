@@ -108,9 +108,10 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-103-tenant-middleware
-- Current task: VQ-103 — Tenant context on every request
-- Status: **VQ-103 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 31 tests passing.
+- Current branch: vq-104-storage-namespace
+- Current task: VQ-104 — Per-tenant document storage
+- Status: **VQ-104 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 57 tests passing.
+- Gate 6 Evidence: Tenant A upload → `storage/8b8b25d9-3237-4469-9309-c0a15bdabce4/2e3e2639-6bf8-4021-8b5a-9abb535c9857/original/2e3e2639-6bf8-4021-8b5a-9abb535c9857.pdf`; Cross-tenant download (Tenant B) → 404; Storage usage → 1 doc, 13 bytes
 
 ## Blockers
 - None
@@ -172,6 +173,24 @@ We sell this to many companies at once from one installation. Each company is a 
 - Gate 6: Live container verified — 5 tests passed (health, tenant login, tampered token 401, suspended tenant 403, super admin null tenant)
 - Gate 7: Pending (demo)
 
+### VQ-104 — Per-tenant document storage
+- Storage path: `storage/{tenant_id}/{doc_uuid}/original/{uuid}.bin` — never from uploaded filename
+- 6 endpoints: POST/GET/DELETE /documents, preview, download, usage
+- Mime allowlist (pdf, txt, md, docx, xlsx, csv), 50MB max
+- Path traversal sanitization (.., /, \ stripped)
+- Cross-tenant download/preview/delete returns 404
+- RLS policy on documents table
+- File deleted from disk on document delete
+- Storage usage tracked: count, bytes, MB per tenant
+- 13 tests: upload, list, preview, download, cross-tenant 404, delete, usage, path traversal
+- Gate 1: Approach note drafted (reviewer approval pending)
+- Gate 2: Implementation complete (commits 37ec731, 0d50044, 47e7595, 126170c, 3a417b3, b733d65)
+- Gate 3: 13 tests written, all 57 tests passing
+- Gate 4: Self-review complete, checklist ticked, PR #5 opened
+- Gate 5: Pending (reviewer approval)
+- Gate 6: Live container verified — Tenant A upload stored at `storage/8b8b25d9-3237-4469-9309-c0a15bdabce4/2e3e2639-6bf8-4021-8b5a-9abb535c9857/original/2e3e2639-6bf8-4021-8b5a-9abb535c9857.pdf`, cross-tenant download from Tenant B returns 404, storage usage tracked (1 doc, 13 bytes)
+- Gate 7: Pending (demo)
+
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
 - Database: PostgreSQL 16 (Docker: vaultiq-db, port 5433)
@@ -213,15 +232,114 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 
 ---
 
+## VQ-101 — Tenant data model and migration (Detailed)
+**Note:** This is **VQ-101**, not HX-101. Asana shows it as HX-101 but we are not using HX in this application. The correct story ID is **VQ-101**.
+**[BE][W1][P0][5pt]**
+
+### Objective
+Introduce the client organisation (tenant) as a first-class concept so that every piece of data in VaultIQ belongs to exactly one tenant.
+
+### Acceptance Criteria
+1. A tenant can be created with a unique short code, a display name and a status (active / suspended / offboarding / purged)
+2. Every record that holds client data (users, documents and their versions, text chunks, embeddings, conversations, messages, feedback, audit entries, sessions, cached answers, ingestion jobs) is linked to one tenant and cannot exist without one
+3. Platform (Super Admin) accounts are the only accounts not linked to a tenant
+4. All existing HeXta/ADS data ends up under one tenant with nothing lost
+5. The change can be rolled back
+
+### Must Be Proven
+- Before/after record counts for the ADS migration, posted as a comment
+- An automated test that inserting client data without a tenant fails
+- The full existing test suite still passes
+
+### Out of Scope
+- Enforcing who can read which tenant's data (VQ-102, VQ-103)
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — tables to touch, migration steps, tests, risks. Reviewer approves before coding. |
+| 2 | Implement — Branch `vq-101-tenant-model`. Small commits with story ID. Push daily. |
+| 3 | Tests written and green — Migration up/down test on seeded data; model test that missing tenant_id fails; full test suite green. Paste run summary. |
+| 4 | Self-review — Go through Review checklist and Common mistakes; tick each in comment. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Rebuild image, run migration, verify each acceptance criterion by hand. Paste evidence (commands, row counts). |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
+## VQ-105 — Tenant-scoped login and session tokens (Detailed)
+**Note:** This is **VQ-105**, not HX-105. Asana shows it as HX-105 but we are not using HX in this application. The correct story ID is **VQ-105**.
+**[BE][W1][P0][5pt]**
+
+### Objective
+Users log in to their own organisation, and every request afterwards carries proof of who they are, their role, and which tenant they belong to.
+
+### Acceptance Criteria
+1. Login requires the organisation code, email and password
+2. A wrong organisation code, wrong email and wrong password all produce the same response, in the same time, so an attacker cannot tell which one was wrong
+3. The session token identifies the user, their role and their tenant; a platform (Super Admin) token has no tenant
+4. Sessions can be refreshed and revoked; a revoked session stops working on the very next request
+5. Repeated failed logins lock the account temporarily
+6. Minimum password strength is enforced
+
+### Must Be Proven
+- Automated tests for the full success/failure matrix, a tampered token, and a revoked session
+- Evidence from the live container showing decoded tokens for each role (secrets redacted)
+
+### Out of Scope
+- Invite and password-reset flows (VQ-107, VQ-301)
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — login flow, JWT claims, refresh/revocation reuse, lockout. Reviewer approves first. |
+| 2 | Implement — Branch `vq-105-tenant-login`. Small commits with story ID. |
+| 3 | Tests written and green — Login matrix, token tampering, revoked session. Full suite green. Paste summary. |
+| 4 | Self-review — Confirm identical error text for all login failures. Tick Common mistakes. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Log in as Super Admin, Client Admin, Employee; decode JWT and paste claims. |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
+## VQ-104 — Per-tenant document storage (Detailed)
+**Note:** This is **VQ-104**, not HX-104. Asana shows it as HX-104 but we are not using HX in this application. The correct story ID is **VQ-104**.
+**[BE][W1][P0][3pt]**
+
+### Objective
+Each tenant's uploaded files are kept physically separate, and no user-supplied value can influence where a file is stored or which file is read.
+
+### Acceptance Criteria
+1. Files are stored in a location derived from the tenant and a server-generated document identity, never from the uploaded filename
+2. Reading, previewing or downloading a file re-checks that the file belongs to the requesting tenant
+3. Per-tenant storage usage is tracked so quotas can be enforced later
+
+### Must Be Proven
+- Automated tests for path-manipulation attempts and for cross-tenant download
+- Evidence from the live container showing where an uploaded file landed and a refused cross-tenant fetch
+
+### Gates
+| Gate | Requirement |
+|------|-------------|
+| 1 | Approach note — path layout, sanitisation rules, where tenant is re-checked. Reviewer approves before coding. |
+| 2 | Implement — Branch `vq-104-storage-namespace`. Small commits with story ID. |
+| 3 | Tests written and green — Path traversal cases; cross-tenant download denied. Full suite green. Paste summary. |
+| 4 | Self-review — Confirm the user filename never reaches the path. Tick Common mistakes. Open PR. |
+| 5 | Code review — Lead reviews. |
+| 6 | Live container verify — Upload as tenant A on the live container, inspect the disk path, try to fetch it as tenant B. Paste evidence. |
+| 7 | Demo & sign-off — Friday evening. |
+
+---
+
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-103 — Tenant context on every request (Gates 1-4, 6 complete; Gate 5 pending)
-- [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
+- [x] VQ-104 — Per-tenant document storage (Gates 1-4, 6 complete; Gate 5 pending)
 
 ## Task Dependency Chain
 ```
-VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104
+VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104 ✅ (Gates 1-4, 6)
 ```
 
 ## Key Decisions
@@ -239,8 +357,16 @@ VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-
 - users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
 - sessions: id, user_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
 
+## Database Tables
+- tenants: id, short_code, name, status, timestamps
+- users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
+- sessions: id, user_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
+- documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
+
 ## RLS Policy
 - Enabled on users table
+- Policy: tenant_id = current_setting('app.current_tenant')::uuid
+- Enabled on documents table
 - Policy: tenant_id = current_setting('app.current_tenant')::uuid
 
 ## Auth Endpoints
@@ -248,6 +374,14 @@ VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-
 - POST /auth/refresh — Refresh token (requires valid Bearer token)
 - POST /auth/logout — Revoke session (requires valid Bearer token)
 - GET /health — Health check (no auth required)
+
+## Document Endpoints
+- POST /documents — Upload file (multipart, validates mime/size)
+- GET /documents — List documents (paginated, tenant-scoped)
+- GET /documents/{id}/preview — Preview (text inline, 5000 chars)
+- GET /documents/{id}/download — Download (original filename)
+- DELETE /documents/{id} — Delete (file + DB)
+- GET /documents/usage — Storage stats (count, bytes, MB)
 
 ## Project Structure
 ```
@@ -267,25 +401,32 @@ app/
     tenant.py        — Tenant model
     user.py          — User model
     session.py       — Session model (token tracking, revocation)
+    document.py      — Document model
   routes/
     __init__.py
     auth.py          — Login, refresh, logout endpoints
+    documents.py     — Document CRUD, preview, download, usage
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
     tenant.py        — TenantCreate, TenantResponse
     user.py          — UserCreate, UserResponse
+    document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
+  services/
+    storage.py       — File save/delete with tenant isolation
 tests/
   __init__.py
   conftest.py        — DB fixtures (async engine, session, db_conn)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
   test_tenant_context.py — 5 tests for VQ-103
+  test_documents.py  — 13 tests for VQ-104
 alembic/
   env.py
   versions/
     001_initial.py   — Tenants + Users + RLS migration
     002_add_sessions.py — Sessions table + lockout columns
+    d9ecec7d2e04_vq_104_add_documents_table_for_per_.py — Documents table + RLS
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/
@@ -298,6 +439,7 @@ alembic/
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+- Triggers include `vq-104-storage-namespace` branch
 
 ## Tooling
 - `winget install GitHub.cli` — **done**

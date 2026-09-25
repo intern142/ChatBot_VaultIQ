@@ -32,4 +32,4 @@ async def get_db() -> AsyncSession:
 
 
 async def set_tenant_context(db: AsyncSession, tenant_id: str) -> None:
-    await db.execute(text("SET LOCAL app.current_tenant = :tid"), {"tid": tenant_id})
+    await db.execute(text(f"SET app.current_tenant = '{tenant_id}'"))

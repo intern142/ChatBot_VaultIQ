@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     LOCKOUT_DURATION_MINUTES: int = 15
     APP_ENV: str = "development"
     APP_PORT: int = 8000
+    STORAGE_ROOT: str = "./storage"
 
 
 @lru_cache()
