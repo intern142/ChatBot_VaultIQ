@@ -53,3 +53,37 @@ async def db_session(override_db_engine, db_conn):
         await session.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
         await session.commit()
         yield session
+
+
+@pytest.fixture(scope="function")
+async def app_db_engine():
+    """Engine connected as vaultiq_app role (no BYPASSRLS)."""
+    app_url = settings.DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret")
+    engine = create_async_engine(
+        app_url,
+        echo=False,
+        pool_pre_ping=True,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def app_db_session(app_db_engine):
+    """Async session as vaultiq_app role - RLS enforced."""
+    # Use admin engine for cleanup (vaultiq_app has no TRUNCATE privilege)
+    admin_engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True,
+    )
+    async with admin_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
+    await admin_engine.dispose()
+    session_factory = async_sessionmaker(
+        app_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    async with session_factory() as session:
+        yield session

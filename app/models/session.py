@@ -14,6 +14,11 @@ class Session(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     token_hash = Column(String(255), nullable=False)
     is_revoked = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())

@@ -2,12 +2,13 @@
 
 Revision ID: 002_add_sessions
 Revises: 001_initial
-Create Date: 2026-09-15
+Create Date: 2026-09-18
 
 """
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
+
 
 revision: str = "002_add_sessions"
 down_revision: Union[str, None] = "001_initial"
@@ -20,6 +21,7 @@ def upgrade() -> None:
         CREATE TABLE sessions (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
             token_hash VARCHAR(255) NOT NULL,
             is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -30,6 +32,7 @@ def upgrade() -> None:
 
     op.execute("CREATE INDEX idx_sessions_user_id ON sessions(user_id)")
     op.execute("CREATE INDEX idx_sessions_token_hash ON sessions(token_hash)")
+    op.execute("CREATE INDEX idx_sessions_tenant_id ON sessions(tenant_id)")
 
     op.execute("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0")
     op.execute("ALTER TABLE users ADD COLUMN locked_until TIMESTAMPTZ")
