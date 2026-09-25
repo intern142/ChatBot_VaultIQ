@@ -1,0 +1,6 @@
+VQ-110 Gate 6: isolation suite 36/36 passed against live container
+
+- uvicorn app.main:app on 127.0.0.1:8000 against Docker PG (5433)
+- LIVE_BASE_URL=http://127.0.0.1:8000 -> 36/36 passed
+- uvicorn log: 1672 real HTTP requests, cross-tenant 404 refusals with body {"detail":"Document not found"} - refusal without existence leak
+- Super-admin auth has pre-existing RLS bug (users FORCE RLS filters NULL-tenant in get_current_user); isolation suite passes because it uses token-based cross-tenant checks that don't require super-admin admin endpoints

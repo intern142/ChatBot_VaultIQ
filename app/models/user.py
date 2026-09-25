@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 
@@ -23,10 +24,15 @@ class User(Base):
         Enum("super_admin", "client_admin", "employee", name="user_role"),
         nullable=False,
     )
+    failed_login_attempts = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
     )
+
+    documents = relationship("Document", back_populates="uploader", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="actor", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"

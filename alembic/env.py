@@ -7,11 +7,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import Base
-from app.models import Tenant, User
+from app.models import AuditLog, Document, Invite, Session, Tenant, User
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+if os.environ.get("DATABASE_URL_SYNC"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL_SYNC"])
 
 target_metadata = Base.metadata
 
