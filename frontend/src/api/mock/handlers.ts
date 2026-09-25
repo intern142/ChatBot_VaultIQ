@@ -6,7 +6,7 @@
  * driver layers normalize everything into { error: { status, code, message } }
  * — JSON bodies for `real` mode, thrown ApiError for `mock` mode.
  */
-import { ApiError, LoginRequest, RegisterRequest, LoginResponse, RefreshResponse, VerifyResponse, SuperAdminStats, Document, DocumentCounts, UploadDocumentRequest, DocumentStatus } from '../types';
+import { ApiError, LoginRequest, RegisterRequest, LoginResponse, RefreshResponse, VerifyResponse, SuperAdminStats, Document, DocumentCounts, UploadDocumentRequest, DocumentStatus, Tenant, TenantCreateRequest, TenantCreateResponse, TenantUpdateRequest } from '../types';
 import { mockDb } from './db';
 import { createAccessToken, createRefreshToken, decodeAccessToken, REFRESH_TTL_S } from './tokens';
 
@@ -153,6 +153,45 @@ export function handleUpdateDocumentStatus(id: string, status: DocumentStatus, r
 
 export function handleSearchDocuments(query: string, orgCode?: string): Document[] {
   return mockDb.searchDocuments(query, orgCode);
+}
+
+export function handleGetTenants(): Tenant[] {
+  return mockDb.getTenants();
+}
+
+export function handleCreateTenant(data: TenantCreateRequest): TenantCreateResponse {
+  const existing = mockDb.getTenantByShortCode(data.short_code);
+  if (existing) {
+    throw new ApiError(409, 'Tenant with this short code already exists', 'SHORT_CODE_EXISTS');
+  }
+  if (data.storage_quota_gb < 1) {
+    throw new ApiError(400, 'Storage quota must be at least 1 GB', 'INVALID_QUOTA');
+  }
+  return mockDb.createTenant(data);
+}
+
+export function handleUpdateTenant(id: string, data: TenantUpdateRequest): Tenant {
+  const tenant = mockDb.updateTenant(id, data);
+  if (!tenant) {
+    throw new ApiError(404, 'Tenant not found', 'NOT_FOUND');
+  }
+  return tenant;
+}
+
+export function handleSuspendTenant(id: string): Tenant {
+  const tenant = mockDb.suspendTenant(id);
+  if (!tenant) {
+    throw new ApiError(404, 'Tenant not found', 'NOT_FOUND');
+  }
+  return tenant;
+}
+
+export function handleReactivateTenant(id: string): Tenant {
+  const tenant = mockDb.reactivateTenant(id);
+  if (!tenant) {
+    throw new ApiError(404, 'Tenant not found', 'NOT_FOUND');
+  }
+  return tenant;
 }
 
 export { REFRESH_TTL_S };

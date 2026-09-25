@@ -19,6 +19,10 @@ import {
   DocumentCounts,
   UploadDocumentRequest,
   DocumentStatus,
+  Tenant,
+  TenantCreateRequest,
+  TenantCreateResponse,
+  TenantUpdateRequest,
 } from './types';
 
 type RequestOptions = {
@@ -120,4 +124,9 @@ export const realAuthApi: AuthApi = {
   },
   updateDocumentStatus: (id: string, status: DocumentStatus, reviewedBy: string) => request<Document>(`/documents/${id}/status`, { body: { status, reviewedBy }, withAccess: true }),
   searchDocuments: (query: string, orgCode?: string) => request<Document[]>(`/documents/search?q=${encodeURIComponent(query)}${orgCode ? `&orgCode=${orgCode}` : ''}`, { withAccess: true }),
+  getTenants: () => request<Tenant[]>('/admin/tenants', { withAccess: true }),
+  createTenant: (data: TenantCreateRequest) => request<TenantCreateResponse>('/admin/tenants', { body: data, withAccess: true }),
+  updateTenant: (id: string, data: TenantUpdateRequest) => request<Tenant>(`/admin/tenants/${id}`, { body: data, withAccess: true }),
+  suspendTenant: (id: string) => request<Tenant>(`/admin/tenants/${id}/suspend`, { withAccess: true }),
+  reactivateTenant: (id: string) => request<Tenant>(`/admin/tenants/${id}/reactivate`, { withAccess: true }),
 };

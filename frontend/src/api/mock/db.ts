@@ -1,9 +1,9 @@
 /*
- * In-memory mock database: organizations, users, and refresh-token sessions.
+ * In-memory mock database: organizations, users, tenants, and refresh-token sessions.
  * Mirrors the backend interface spec. Seed data is used by login/register
  * flows and by the test suite (see src/api/__tests__).
  */
-import { UserInfo } from '../types';
+import { UserInfo, Tenant, TenantCreateRequest, TenantCreateResponse } from '../types';
 
 export interface MockUser {
   sub: string;
@@ -42,6 +42,16 @@ export interface MockDocument {
   reviewedBy?: string;
 }
 
+export interface MockTenant {
+  id: string;
+  short_code: string;
+  name: string;
+  status: 'active' | 'suspended' | 'offboarding' | 'purged';
+  storage_quota_gb: number;
+  created_at: string;
+  updated_at: string;
+}
+
 function seed(): MockOrg[] {
   return [
     {
@@ -64,6 +74,48 @@ function seed(): MockOrg[] {
   ];
 }
 
+function seedTenants(): MockTenant[] {
+  const now = new Date();
+  return [
+    {
+      id: 't-1',
+      short_code: 'ACME',
+      name: 'Acme Corporation',
+      status: 'active',
+      storage_quota_gb: 50,
+      created_at: new Date(now.getTime() - 86400000 * 30).toISOString(),
+      updated_at: new Date(now.getTime() - 86400000 * 5).toISOString(),
+    },
+    {
+      id: 't-2',
+      short_code: 'BETA',
+      name: 'Beta Labs Inc',
+      status: 'active',
+      storage_quota_gb: 20,
+      created_at: new Date(now.getTime() - 86400000 * 60).toISOString(),
+      updated_at: new Date(now.getTime() - 86400000 * 10).toISOString(),
+    },
+    {
+      id: 't-3',
+      short_code: 'GAMMA',
+      name: 'Gamma Industries',
+      status: 'suspended',
+      storage_quota_gb: 10,
+      created_at: new Date(now.getTime() - 86400000 * 90).toISOString(),
+      updated_at: new Date(now.getTime() - 86400000 * 2).toISOString(),
+    },
+    {
+      id: 't-4',
+      short_code: 'DELTA',
+      name: 'Delta Systems',
+      status: 'offboarding',
+      storage_quota_gb: 5,
+      created_at: new Date(now.getTime() - 86400000 * 120).toISOString(),
+      updated_at: new Date(now.getTime() - 86400000 * 1).toISOString(),
+    },
+  ];
+}
+
 function seedDocuments(): MockDocument[] {
   const now = new Date();
   return [
@@ -80,9 +132,11 @@ function seedDocuments(): MockDocument[] {
 
 const organizations: MockOrg[] = seed();
 const documents: MockDocument[] = seedDocuments();
+const tenants: MockTenant[] = seedTenants();
 const sessions = new Map<string, MockSession>();
 let nextSub = 1000;
 let nextDocId = 9;
+let nextTenantId = 5;
 
 export const mockDb = {
   findOrg(code: string): MockOrg | undefined {
@@ -179,5 +233,53 @@ export const mockDb = {
       approved: docs.filter(d => d.status === 'approved').length,
       rejected: docs.filter(d => d.status === 'rejected').length,
     };
+  },
+
+  // Tenant methods
+  getTenants(): MockTenant[] {
+    return [...tenants];
+  },
+
+  getTenantById(id: string): MockTenant | undefined {
+    return tenants.find(t => t.id === id);
+  },
+
+  getTenantByShortCode(short_code: string): MockTenant | undefined {
+    return tenants.find(t => t.short_code === short_code);
+  },
+
+  createTenant(data: TenantCreateRequest): TenantCreateResponse {
+    const now = new Date().toISOString();
+    const admin_invite_token = `invite-${crypto.randomUUID()}`;
+    const tenant: MockTenant = {
+      id: `t-${nextTenantId++}`,
+      short_code: data.short_code,
+      name: data.name,
+      status: 'active',
+      storage_quota_gb: data.storage_quota_gb,
+      created_at: now,
+      updated_at: now,
+    };
+    tenants.unshift(tenant);
+    return {
+      tenant,
+      admin_invite_token,
+      invite_url: `/register?invite=${admin_invite_token}&email=${encodeURIComponent(data.admin_email)}`,
+    };
+  },
+
+  updateTenant(id: string, data: Partial<MockTenant>): MockTenant | undefined {
+    const idx = tenants.findIndex(t => t.id === id);
+    if (idx === -1) return undefined;
+    tenants[idx] = { ...tenants[idx], ...data, updated_at: new Date().toISOString() };
+    return tenants[idx];
+  },
+
+  suspendTenant(id: string): MockTenant | undefined {
+    return this.updateTenant(id, { status: 'suspended' });
+  },
+
+  reactivateTenant(id: string): MockTenant | undefined {
+    return this.updateTenant(id, { status: 'active' });
   },
 };

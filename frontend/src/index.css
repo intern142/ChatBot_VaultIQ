@@ -1760,3 +1760,27 @@ input:disabled {
   background: var(--muted);
   border-color: hsl(0 0% 74%);
 }
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modal-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-message {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+
+.confirm-btn:hover {
+  filter: brightness(1.1);
+}

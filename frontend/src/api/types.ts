@@ -103,6 +103,40 @@ export interface UploadDocumentRequest {
   uploadedBy: string;
 }
 
+export interface SearchDocumentsRequest {
+  query: string;
+  orgCode?: string;
+}
+
+export interface Tenant {
+  id: string;
+  short_code: string;
+  name: string;
+  status: 'active' | 'suspended' | 'offboarding' | 'purged';
+  storage_quota_gb: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantCreateRequest {
+  short_code: string;
+  name: string;
+  storage_quota_gb: number;
+  admin_email: string;
+}
+
+export interface TenantCreateResponse {
+  tenant: Tenant;
+  admin_invite_token: string;
+  invite_url: string;
+}
+
+export interface TenantUpdateRequest {
+  name?: string;
+  status?: Tenant['status'];
+  storage_quota_gb?: number;
+}
+
 export type AuthApi = {
   login: (data: LoginRequest) => Promise<LoginResponse>;
   register: (data: RegisterRequest) => Promise<LoginResponse>;
@@ -115,4 +149,9 @@ export type AuthApi = {
   uploadDocument: (data: UploadDocumentRequest) => Promise<Document>;
   updateDocumentStatus: (id: string, status: DocumentStatus, reviewedBy: string) => Promise<Document>;
   searchDocuments: (query: string, orgCode?: string) => Promise<Document[]>;
+  getTenants: () => Promise<Tenant[]>;
+  createTenant: (data: TenantCreateRequest) => Promise<TenantCreateResponse>;
+  updateTenant: (id: string, data: TenantUpdateRequest) => Promise<Tenant>;
+  suspendTenant: (id: string) => Promise<Tenant>;
+  reactivateTenant: (id: string) => Promise<Tenant>;
 };
