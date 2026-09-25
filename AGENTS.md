@@ -369,7 +369,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-6 complete)**
+### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **Gates 1-6 ✅**
 **Depends on:** VQ-105
 **Branch:** `vq-106-permissions`
 **PR:** #7
@@ -473,8 +473,6 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 **Objective:** Database itself refuses cross-tenant reads — even if code has bugs. Roles enforced everywhere. Automated test proves A can't touch B. Can create/suspend customers.
 
 **Tasks (Asana order: 102 → 106 → 107 → 110):**
-| Task | Description | Depends On | Status |
-|------|-------------|------------|--------|
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
 | VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | **ALL GATES ✅ (1-7)** |
