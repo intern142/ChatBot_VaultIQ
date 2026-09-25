@@ -20,6 +20,10 @@ class DocumentResponse(DocumentBase):
     tenant_id: uuid.UUID
     stored_filename: str
     uploaded_by: uuid.UUID
+    extraction_method: Literal['pdf_text', 'ocr', 'none'] | None = None
+    extraction_status: Literal['completed', 'no_text', 'unavailable', 'not_required'] | None = None
+    extraction_page_count: int | None = None
+    extraction_truncated: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

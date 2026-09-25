@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -36,10 +36,14 @@ class Settings(BaseSettings):
         "image/png,"
         "image/jpeg"
     )
+    OCR_REQUIRED: bool = False
+    OCR_TIMEOUT_SECONDS: int = 90
+    OCR_MAX_PAGES: int = 20
+    OCR_MAX_TEXT_CHARS: int = 1_000_000
+    OCR_RENDER_DPI: int = 200
+    OCR_MAX_CONCURRENT_DOCUMENTS: int = 2
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
 @lru_cache()

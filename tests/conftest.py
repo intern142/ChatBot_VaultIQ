@@ -11,9 +11,11 @@ import psycopg2
 import uuid
 import io
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
 from sqlalchemy import text
 from httpx import AsyncClient, ASGITransport
 from app.config import get_settings
+from app.database import get_db
 from app.auth.password import hash_password
 from app.auth.jwt import create_access_token
 from app.main import app
@@ -21,18 +23,33 @@ from app.main import app
 settings = get_settings()
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the whole suite.
+test_app_engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    poolclass=NullPool,
+)
+test_app_session_factory = async_sessionmaker(
+    test_app_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
-    The app creates a module-level async engine (app.database). Routing each
-    test through its own event loop means the pool can hand a connection bound
-    to a previously-closed loop to a later test (asyncpg flakes). A shared
-    session loop keeps every pooled connection on a live loop.
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+
+async def override_get_db():
+    async with test_app_session_factory() as session:
+        yield session
+
+
+@pytest.fixture(autouse=True)
+def use_test_app_database():
+    missing = object()
+    previous = app.dependency_overrides.get(get_db, missing)
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    if previous is missing:
+        app.dependency_overrides.pop(get_db, None)
+    else:
+        app.dependency_overrides[get_db] = previous
 
 
 @pytest.fixture(scope="function")
@@ -51,7 +68,7 @@ async def db_engine():
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     # Truncate at start of each test function
     async with engine.begin() as conn:
@@ -78,7 +95,7 @@ async def app_db_engine():
     engine = create_async_engine(
         app_url,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     yield engine
     await engine.dispose()
@@ -90,7 +107,7 @@ async def app_db_session(app_db_engine):
     admin_engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     async with admin_engine.begin() as conn:
         await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))

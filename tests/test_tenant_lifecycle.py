@@ -14,7 +14,6 @@ import psycopg2
 import pytest
 import pytest_asyncio
 import httpx
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import text
 
 from app.main import app
@@ -40,28 +39,6 @@ def db_conn():
     conn.commit()
     yield conn
     conn.close()
-
-
-@pytest_asyncio.fixture(scope="function", autouse=True)
-async def override_db_engine():
-    import app.database as database
-
-    engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=False,
-        pool_pre_ping=False,
-    )
-    session_factory = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    database.engine = engine
-    database.AsyncSessionLocal = session_factory
-
-    yield
-
-    await engine.dispose()
 
 
 @pytest_asyncio.fixture

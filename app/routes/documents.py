@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import mimetypes
 import magic
@@ -21,6 +22,13 @@ from app.services.storage import (
     save_uploaded_file,
     delete_document_file,
     get_document_file_path,
+)
+from app.services.file_detection import detect_document_mime
+from app.services.storage import UploadTooLargeError
+from app.services.ocr import (
+    DocumentExtractionError,
+    OcrUnavailableError,
+    extract_document_text,
 )
 from app.config import get_settings
 
@@ -60,6 +68,7 @@ def validate_mime_type(file: UploadFile) -> str:
         )
 
     detected_mime = magic.from_buffer(header, mime=True)
+    detected_mime = detect_document_mime(file.file, detected_mime)
 
     if detected_mime not in ALLOWED_MIME_TYPES:
         raise HTTPException(
@@ -75,6 +84,9 @@ async def check_quota(db: AsyncSession, tenant_id: uuid.UUID, additional_bytes: 
     
     Raises HTTPException 413 if quota would be exceeded.
     """
+    await db.execute(
+        select(func.pg_advisory_xact_lock(func.hashtext(str(tenant_id))))
+    )
     # Get current usage
     usage_result = await db.execute(
         select(func.coalesce(func.sum(Document.size_bytes), 0))
@@ -134,34 +146,79 @@ async def upload_document(
     extension = mimetypes.guess_extension(detected_mime) or ".bin"
     stored_filename = f"{document_id}{extension}"
 
-    # Save file to disk
-    file_path = save_uploaded_file(
-        file.file,
-        tenant_id,
-        document_id,
-        stored_filename
-    )
+    file_saved = False
+    document = None
+    try:
+        file_path = save_uploaded_file(
+            file.file,
+            tenant_id,
+            document_id,
+            stored_filename,
+            MAX_FILE_SIZE
+        )
+        file_saved = True
+        actual_size = file_path.stat().st_size
+        if actual_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
+            )
+        extraction = await asyncio.to_thread(extract_document_text, file_path, detected_mime)
+        await check_quota(db, tenant_id, actual_size)
 
-    # Get actual size
-    actual_size = file_path.stat().st_size
-
-    # Double-check quota with actual size (in case file.size was wrong)
-    await check_quota(db, tenant_id, actual_size - (file.size or 0))
-
-    # Create document record
-    document = Document(
-        id=document_id,
-        tenant_id=tenant_id,
-        original_filename=file.filename,
-        stored_filename=stored_filename,
-        mime_type=detected_mime,
-        size_bytes=actual_size,
-        uploaded_by=current_user.id,
-        category=category,
-    )
-    db.add(document)
-    await db.commit()
-    await db.refresh(document)
+        document = Document(
+            id=document_id,
+            tenant_id=tenant_id,
+            original_filename=file.filename,
+            stored_filename=stored_filename,
+            mime_type=detected_mime,
+            size_bytes=actual_size,
+            uploaded_by=current_user.id,
+            category=category,
+            extracted_text=extraction.text,
+            extraction_method=extraction.method,
+            extraction_status=extraction.status,
+            extraction_page_count=extraction.page_count,
+            extraction_truncated=extraction.truncated,
+        )
+        db.add(document)
+        await db.flush()
+        await db.refresh(document)
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_id, document_id, stored_filename)
+        raise
+    except UploadTooLargeError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_id, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
+        ) from exc
+    except OcrUnavailableError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_id, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Offline text extraction is unavailable",
+        ) from exc
+    except DocumentExtractionError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_id, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Document text extraction failed",
+        ) from exc
+    except Exception:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_id, document_id, stored_filename)
+        raise
 
     return document
 
@@ -259,26 +316,42 @@ async def preview_document(
             detail="Document file not found"
         )
 
-    # For text files, return inline preview
+    preview_chars = 5000
+    if document.extracted_text:
+        return {
+            "document_id": str(document.id),
+            "filename": document.original_filename,
+            "mime_type": document.mime_type,
+            "preview": document.extracted_text[:preview_chars],
+            "truncated": document.extraction_truncated or len(document.extracted_text) > preview_chars,
+            "extraction_status": document.extraction_status,
+        }
+
     if document.mime_type.startswith("text/"):
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        preview_chars = 5000
         return {
             "document_id": str(document.id),
             "filename": document.original_filename,
             "mime_type": document.mime_type,
             "preview": content[:preview_chars],
             "truncated": len(content) > preview_chars,
+            "extraction_status": document.extraction_status,
         }
 
-    # For other types, return file info
+    message = "Preview not available for this file type"
+    if document.extraction_status == "no_text":
+        message = "No text detected"
+    elif document.extraction_status == "unavailable":
+        message = "Text extraction unavailable"
+
     return {
         "document_id": str(document.id),
         "filename": document.original_filename,
         "mime_type": document.mime_type,
         "size_bytes": document.size_bytes,
         "preview": None,
-        "message": "Preview not available for this file type"
+        "message": message,
+        "extraction_status": document.extraction_status,
     }
 
 

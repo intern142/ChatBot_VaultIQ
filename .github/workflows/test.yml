@@ -2,13 +2,14 @@ name: Tests
 
 on:
   push:
-    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle]
+    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle, vq-201-tenant-upload]
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -27,6 +28,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install offline document runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng
+
+      - name: Build application image
+        run: docker build --tag vaultiq-vq201:test .
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -49,6 +58,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
+          OCR_REQUIRED: "true"
         run: |
           alembic upgrade head
 
@@ -65,6 +75,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
+          OCR_REQUIRED: "true"
           JWT_SECRET: test-secret
         run: |
           python -m pytest tests/ -v --tb=short

@@ -680,7 +680,7 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 - **Gate 3**: Tests green ✅ — **144 tests pass** (full suite)
 - **Gate 4**: Self-review ✅ (`VQ201_SELF_REVIEW.md`, PR #10)
 - **Gate 5**: Code review pending
-- **Gate 6**: Live container verify pending
+- **Gate 6**: Live container verify **attempted** — uvicorn started on port 8001 against Docker PG (5433), migrations applied, but network connectivity issues prevented full test run; re-attempt needed
 - **Gate 7**: Demo Friday pending
 
 ---

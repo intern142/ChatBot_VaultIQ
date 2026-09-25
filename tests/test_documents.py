@@ -3,10 +3,37 @@ import pytest_asyncio
 import uuid
 import httpx
 import io
+from pathlib import Path
 from app.main import app
 from app.auth.password import hash_password
 from app.auth.jwt import create_access_token
 from app.schemas.tenant import TenantStatus
+from app.config import get_settings
+
+
+def make_minimal_pdf() -> bytes:
+    stream = b"BT /F1 18 Tf 72 720 Td (VaultIQ test document) Tj ET"
+    objects = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj\n",
+        b"4 0 obj << /Length " + str(len(stream)).encode() + b" >> stream\n" + stream + b"\nendstream endobj\n",
+        b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+    ]
+    document = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(document))
+        document.extend(obj)
+    xref_offset = len(document)
+    document.extend(f"xref\n0 {len(offsets)}\n".encode())
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        document.extend(f"{offset:010d} 00000 n \n".encode())
+    document.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    return bytes(document)
 
 
 @pytest_asyncio.fixture
@@ -143,6 +170,65 @@ class TestDocumentUpload:
         assert "id" in resp_data
         assert "stored_filename" in resp_data
         assert resp_data["category"] == "policy"
+        assert resp_data["extraction_status"] == "not_required"
+        assert resp_data["extraction_method"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_upload_persists_extraction_metadata(
+        self, client: httpx.AsyncClient, tenant_a_token, monkeypatch
+    ):
+        from app.services.ocr import ExtractionResult
+
+        def extraction_result(path, mime_type):
+            return ExtractionResult("Extracted customer text", "ocr", "completed", 1, False)
+
+        monkeypatch.setattr(
+            "app.routes.documents.extract_document_text",
+            extraction_result,
+        )
+        token = await tenant_a_token()
+        files = {"file": ("scan.pdf", io.BytesIO(make_minimal_pdf()), "application/pdf")}
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data={"category": "other"},
+        )
+        assert response.status_code == 201
+        document = response.json()
+        assert document["extraction_method"] == "ocr"
+        assert document["extraction_status"] == "completed"
+        assert document["extraction_page_count"] == 1
+        assert document["extraction_truncated"] is False
+        preview = await client.get(
+            f"/documents/{document['id']}/preview",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert preview.status_code == 200
+        assert preview.json()["preview"] == "Extracted customer text"
+
+    @pytest.mark.asyncio
+    async def test_failed_extraction_removes_stored_file(
+        self, client: httpx.AsyncClient, tenant_a_token, tenant_a, monkeypatch
+    ):
+        from app.config import get_settings
+        from app.services.ocr import DocumentExtractionError
+
+        def fail_extraction(path, mime_type):
+            raise DocumentExtractionError("failed")
+
+        monkeypatch.setattr("app.routes.documents.extract_document_text", fail_extraction)
+        token = await tenant_a_token()
+        files = {"file": ("document.pdf", io.BytesIO(make_minimal_pdf()), "application/pdf")}
+        response = await client.post(
+            "/documents",
+            headers={"Authorization": f"Bearer {token}"},
+            files=files,
+            data={"category": "other"},
+        )
+        assert response.status_code == 422
+        tenant_directory = Path(get_settings().STORAGE_ROOT) / str(tenant_a)
+        assert not tenant_directory.exists() or not any(tenant_directory.iterdir())
 
     @pytest.mark.asyncio
     async def test_upload_rejects_disallowed_mime_type(self, client: httpx.AsyncClient, tenant_a_token):
@@ -481,7 +567,9 @@ class TestPathTraversal:
 
 class TestQuotaEnforcement:
     @pytest.mark.asyncio
-    async def test_quota_exceeded_rejects_upload(self, client: httpx.AsyncClient, tenant_a_token, db_conn):
+    async def test_quota_exceeded_rejects_upload(
+        self, client: httpx.AsyncClient, tenant_a_token, tenant_a, db_conn
+    ):
         """Test that upload is rejected when tenant quota would be exceeded."""
         token = await tenant_a_token()
         
@@ -503,6 +591,8 @@ class TestQuotaEnforcement:
         )
         assert response.status_code == 413
         assert "quota exceeded" in response.json()["detail"].lower()
+        tenant_directory = Path(get_settings().STORAGE_ROOT) / str(tenant_a)
+        assert not tenant_directory.exists()
 
     @pytest.mark.asyncio
     async def test_quota_allows_within_limit(self, client: httpx.AsyncClient, tenant_a_token, db_conn):
@@ -554,7 +644,7 @@ class TestContentBasedMimeDetection:
         token = await tenant_a_token()
         
         # Minimal valid PDF content
-        file_content = b"%PDF-1.4\n%EOF\n"
+        file_content = make_minimal_pdf()
         files = {"file": ("test.pdf", io.BytesIO(file_content), "application/pdf")}
         data = {"category": "policy"}
         

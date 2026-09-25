@@ -31,9 +31,10 @@ async def get_db() -> AsyncSession:
 
 
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
-    """Set tenant context for RLS using SET LOCAL (transaction-scoped, auto-resets)."""
-    # Use literal string interpolation for SET LOCAL (asyncpg doesn't support params for SET)
-    await session.execute(text(f"SET LOCAL app.current_tenant = '{tenant_id}'"))
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :tenant_id, true)"),
+        {"tenant_id": tenant_id},
+    )
 
 
 async def clear_tenant_context(session: AsyncSession) -> None:

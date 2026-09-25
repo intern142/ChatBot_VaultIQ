@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.database import get_db, set_tenant_context
 from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -65,6 +65,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         user = None
         if tenant:
+            await set_tenant_context(db, str(tenant.id))
             result = await db.execute(
                 select(User).where(
                     User.email == request.email,
@@ -117,6 +118,9 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Invalid credentials",
         )
 
+    if user.tenant_id:
+        await set_tenant_context(db, str(user.tenant_id))
+
     session = Session(
         user_id=user.id,
         tenant_id=user.tenant_id,
@@ -126,7 +130,6 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(session)
     await db.commit()
-    await db.refresh(session)
 
     token = create_access_token(
         user_id=user.id,
@@ -162,6 +165,9 @@ async def refresh(
         active_session.revoked_at = datetime.now(timezone.utc)
         await db.commit()
 
+    if user.tenant_id:
+        await set_tenant_context(db, str(user.tenant_id))
+
     new_session = Session(
         user_id=user.id,
         tenant_id=user.tenant_id,
@@ -171,7 +177,6 @@ async def refresh(
     )
     db.add(new_session)
     await db.commit()
-    await db.refresh(new_session)
 
     token = create_access_token(
         user_id=user.id,
@@ -206,6 +211,9 @@ async def logout(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
     jti = payload.get("jti")
+    tenant_id = payload.get("tenant_id")
+    if tenant_id:
+        await set_tenant_context(db, tenant_id)
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
 
