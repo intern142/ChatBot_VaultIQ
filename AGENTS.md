@@ -696,7 +696,6 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
 | VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Gates 1-4, 6 ✅ |
-| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-4, 6 ✅** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
@@ -710,8 +709,45 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
-Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110 → VQ-201
+Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
+Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 ```
+
+## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
+
+### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4, 6 ✅**
+**Depends on:** VQ-104, VQ-106
+**Objective:** A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
+
+**Completed:**
+- Content-based MIME detection (libmagic + OLE/OOXML/ODF/EPUB/EML signatures)
+- 19 allowed MIME types covering all HeXta formats + scanned PDF/images via OCR
+- Bounded offline OCR (tesseract + poppler) with timeouts, page/text caps, semaphore
+- Category enum per upload (policy/hr/sop/process/other)
+- Per-file (50MB) + per-tenant quota enforcement with advisory lock, pre-save check
+- Role restriction: client_admin only for POST /documents
+- Extraction metadata persisted (text, method, status, pages, truncated)
+- RLS hardened for app-role (vaultiq_app, BYPASSRLS=false)
+- Docker image with offline runtime (libmagic, poppler, tesseract, olefile)
+- CI updated with OCR_REQUIRED=true, internal network verification
+- Full test suite: 163 tests passing in Linux container (216s)
+
+**Gate 6 Evidence — Live Container:**
+- 163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`, internal Docker network
+- All 19 formats accepted; PHP MIME rejected
+- Quota/RLS/role checks verified
+- OCR completed for scanned PDF/PNG/JPEG/TIFF; non-OCR formats report `not_required`
+
+**Acceptance Criteria Status:**
+1. ✅ All 19 formats + OCR path work
+2. ✅ Category recorded per upload
+3. ✅ Quota enforced before persistent write; clear error messages
+4. ✅ File type judged from content (libmagic + signature detection)
+5. ✅ Employees blocked (403)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo)
+
+---
 
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
