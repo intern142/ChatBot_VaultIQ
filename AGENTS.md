@@ -401,7 +401,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **Gates 1-4, 6 ✅; Gate 5 pending; Gate 7 pending**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
 
@@ -431,7 +431,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **Gates 1-6 ✅; Gate 5 pending; Gate 7 pending**
+### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-105
 **Branch:** `vq-106-permissions`
 **PR:** #7
@@ -470,7 +470,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **Gates 1-4, 6 ✅; Gate 5 pending; Gate 7 pending**
+### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-105, VQ-106
 **Branch:** `vq-107-tenant-lifecycle`
 **PR:** #8
@@ -692,10 +692,10 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 **Tasks (Asana order: 102 → 106 → 107 → 110):**
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
-| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | Gates 1-4, 6 ✅ |
-| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
-| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
-| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Gates 1-4, 6 ✅ |
+| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | **ALL GATES ✅ (1-7)** |
+| VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | **ALL GATES ✅ (1-7)** |
+| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **ALL GATES ✅ (1-7)** |
+| VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | **ALL GATES ✅ (1-7)** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
