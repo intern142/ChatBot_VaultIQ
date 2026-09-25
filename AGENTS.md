@@ -401,7 +401,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **Gates 1-4, 6 ✅; Gate 5 pending; Gate 7 pending**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
 
@@ -431,7 +431,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-6 complete)**
+### VQ-106 — Role and permission model [BE][W2][P0][5pt] — **Gates 1-6 ✅; Gate 5 pending; Gate 7 pending**
 **Depends on:** VQ-105
 **Branch:** `vq-106-permissions`
 **PR:** #7
@@ -470,7 +470,7 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ---
 
-### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **IN PROGRESS (Gates 1-4, 6 complete)**
+### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **Gates 1-4, 6 ✅; Gate 5 pending; Gate 7 pending**
 **Depends on:** VQ-105, VQ-106
 **Branch:** `vq-107-tenant-lifecycle`
 **PR:** #8
