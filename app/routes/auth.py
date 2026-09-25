@@ -13,6 +13,7 @@ from app.auth.password import verify_password
 from app.auth.jwt import create_access_token, decode_token
 from app.auth.dependencies import get_current_user
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, MessageResponse
+from app.schemas.tenant import TenantStatus
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -72,6 +73,18 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             user = result.scalar_one_or_none()
 
     if user:
+        if user.tenant_id:
+            result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+            tenant = result.scalar_one_or_none()
+            if tenant and tenant.status in (TenantStatus.suspended, TenantStatus.offboarding):
+                elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+                if elapsed < LOGIN_DELAY.total_seconds():
+                    await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tenant suspended",
+                )
+
         locked = await _check_lockout(user)
         if locked:
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()

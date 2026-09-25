@@ -108,9 +108,9 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-105-tenant-login
+- Current branch: vq-103-tenant-middleware
 - Current task: VQ-103 — Tenant context on every request
-- Status: **VQ-105 Gate 6 complete** — 26/26 tests pass, live container verified, JWT claims captured for all 3 roles. VQ-103 Gate 1: Approach note drafted.
+- Status: **VQ-103 Gates 1-4, 6 complete**. Gate 5 (Code review) pending. All 31 tests passing.
 
 ## Blockers
 - None
@@ -159,14 +159,18 @@ We sell this to many companies at once from one installation. Each company is a 
   - **Client Admin** (org_code=ACME): `sub=<user_id>`, `role=client_admin`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
   - **Employee** (org_code=ACME): `sub=<user_id>`, `role=employee`, `tenant_id=d3985764-1cd6-4c25-baea-e73cefcc9fd6`, `jti=<session_id>`, `exp=24h`
 
-## Completed (VQ-101)
-- [x] Project structure created
-- [x] SQLAlchemy models (Tenant, User)
-- [x] Alembic migration with RLS policies (raw SQL)
-- [x] CHECK constraint: only super_admin can have null tenant_id
-- [x] Tests written (8 tests) — **ALL PASSING**
-- [x] alembic upgrade head — SUCCESS
-- [x] pytest tests/test_tenant.py -v — 8 PASSED
+### VQ-103 — Tenant context on every request
+- `set_tenant_context` helper in `app/database.py`
+- `get_current_user_with_tenant` dependency in `app/auth/dependencies.py`
+- Suspended/offboarding tenant check in login endpoint (`app/routes/auth.py`)
+- 5 new tests: tampered token, cross-tenant 404, injected tenant_id ignored, suspended tenant blocked, super_admin bypass
+- Gate 1: Approach note drafted (reviewer approval pending)
+- Gate 2: Implementation complete (commit 4aaf703)
+- Gate 3: 5 tests written, all 31 tests pass (commit 87af5ff)
+- Gate 4: Self-review complete, checklist ticked, PR #4 opened (commit 5df1fa0)
+- Gate 5: Pending (reviewer approval)
+- Gate 6: Live container verified — 5 tests passed (health, tenant login, tampered token 401, suspended tenant 403, super admin null tenant)
+- Gate 7: Pending (demo)
 
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
@@ -179,6 +183,7 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## VQ-103 — Tenant context on every request (Detailed)
+**Note:** This is **VQ-103**, not HX-103. Asana shows it as HX-103 but we are not using HX in this application. The correct story ID is **VQ-103**.
 **[BE][W1][P0][3pt]**
 
 ### Objective
@@ -211,12 +216,12 @@ Exactly one place in the system decides which tenant a request belongs to, and i
 ## Sprint 1 Progress
 - [x] VQ-101 — Tenant data model (Gates 1-4, 6 complete; Gate 5 pending)
 - [x] VQ-105 — Tenant-scoped login and session tokens (Gates 1-4, 6 complete; Gate 5 pending)
-- [ ] VQ-103 — Tenant context on every request (Gate 1: Approach note drafted)
+- [x] VQ-103 — Tenant context on every request (Gates 1-4, 6 complete; Gate 5 pending)
 - [ ] VQ-104 — Per-tenant document storage (depends on VQ-103)
 
 ## Task Dependency Chain
 ```
-VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 (Gate 1) → VQ-104
+VQ-101 ✅ (Gates 1-4, 6) → VQ-105 ✅ (Gates 1-4, 6) → VQ-103 ✅ (Gates 1-4, 6) → VQ-104
 ```
 
 ## Key Decisions
@@ -275,6 +280,7 @@ tests/
   conftest.py        — DB fixtures (async engine, session, db_conn)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
+  test_tenant_context.py — 5 tests for VQ-103
 alembic/
   env.py
   versions/
@@ -288,7 +294,7 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to `vq-105-tenant-login`, PR to `main` or `vq-105-tenant-login`
+- Triggers: push to `vq-105-tenant-login`, `vq-103-tenant-middleware`, PR to `main` or these branches
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)

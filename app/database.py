@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import text
 from app.config import get_settings
 
 settings = get_settings()
@@ -28,3 +29,7 @@ async def get_db() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+
+async def set_tenant_context(db: AsyncSession, tenant_id: str) -> None:
+    await db.execute(text("SET LOCAL app.current_tenant = :tid"), {"tid": tenant_id})
