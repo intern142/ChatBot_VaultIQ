@@ -677,10 +677,10 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 ### Gate Status
 - **Gate 1**: Approach note ✅ (`APPROACH_VQ201.md`)
 - **Gate 2**: Implementation ✅ (committed to vq-201-tenant-upload)
-- **Gate 3**: Tests green ✅ — **144 tests pass** (full suite)
+- **Gate 3**: Tests green ✅ — **163 tests pass** (Linux container, full suite); 144 pass (host)
 - **Gate 4**: Self-review ✅ (`VQ201_SELF_REVIEW.md`, PR #10)
 - **Gate 5**: Code review pending
-- **Gate 6**: Live container verify **attempted** — uvicorn started on port 8001 against Docker PG (5433), migrations applied, but network connectivity issues prevented full test run; re-attempt needed
+- **Gate 6**: Live container verify ✅ — 163 tests passed in Linux container (216s) with `vaultiq_app` role, `BYPASSRLS=false`, internal Docker network, `OCR_REQUIRED=true`; all 19 formats accepted, quota/RLS/role checks verified
 - **Gate 7**: Demo Friday pending
 
 ---
@@ -696,7 +696,7 @@ A Client Admin can upload their organisation's documents in the formats HeXta al
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | Gates 1-6 ✅ |
 | VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Gates 1-4, 6 ✅ |
-| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-4 ✅** |
+| VQ-201 | Document upload with category, quota, MIME detection, role restriction | VQ-104, VQ-106 | **Gates 1-4, 6 ✅** |
 
 **Must Be True by Friday:**
 - RLS policies on ALL tenant-scoped tables (users, documents, sessions, future tables)
