@@ -109,10 +109,10 @@ We sell this to many companies at once from one installation. Each company is a 
 
 ## Project State
 - Current branch: `vq-202-approval-versioning` (off main @ `9e5ecc8`)
-- Current task: **VQ-202** — Approval workflow and document versions (Gates 1-3 done, PR not yet opened)
+- Current task: **VQ-202** — Approval workflow and document versions (Gate 4 done, PR #11 open for review)
 - Also open: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`, Gate 6 evidence withdrawn)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
-- Test suite on `vq-202-approval-versioning`: **188 passed** (`python -m pytest tests/ -q`, 384s) — suite now runs as `vaultiq_app` (NOBYPASSRLS), RLS enforced
+- Test suite on `vq-202-approval-versioning`: **188 passed** (`python -m pytest tests/ -q`, 384s) — suite now runs as `vaultiq_app` (NOBYPASSRLS), RLS enforced **in CI too**
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 
 ## Known Defects (must be fixed before VQ-202)
@@ -120,9 +120,9 @@ We sell this to many companies at once from one installation. Each company is a 
    RLS policy is inert during test and CI runs. VQ-102's claim that "the database itself
    refuses cross-tenant reads" is therefore only proven by the handful of tests that use
    the `app_db_session` / `app_db_conn` fixtures — never through the HTTP endpoints.
-   **PARTIALLY FIXED:** `tests/conftest.py` now provides `app_db_engine` / `app_db_session`
+   **FIXED:** `tests/conftest.py` now provides `app_db_engine` / `app_db_session`
    fixtures that connect as `vaultiq_app` (NOBYPASSRLS), and the full suite runs under
-   RLS enforcement. CI still uses the superuser; see CI Pipeline section.
+   RLS enforcement. **CI now also runs as `vaultiq_app`** (see CI Pipeline section).
 2. **Super Admin auth is broken under the real production identity (`vaultiq_app`).**
    The policies on `users` and `sessions` are bare
    `tenant_id = current_setting('app.current_tenant', true)::uuid` with no branch for
@@ -919,17 +919,12 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-202-approval-versioning`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
-- Steps: checkout → build image (libmagic/poppler/tesseract) → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
+- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head (as superuser) → create vaultiq_app role + grants → **pytest tests/ as `vaultiq_app` (RLS enforced)**
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
 
-> ⚠️ **CI runs the application as the `vaultiq` superuser, not `vaultiq_app`.**
-> The pytest step sets `DATABASE_URL` with the `vaultiq` credentials, and that
-> role is `rolsuper = t, rolbypassrls = t`. CI therefore creates and grants the
-> `vaultiq_app` role but never connects as it, so **every RLS policy is inert in
-> CI**. This is Known Defect #1. The fix is to split the identities: seed and
-> migrate as the superuser, run the application under test as `vaultiq_app`.
+> **FIXED:** CI now runs the application tests as `vaultiq_app` (NOBYPASSRLS). Migrations still run as superuser (`DATABASE_URL_SYNC`), but the test step sets `DATABASE_URL` to the app identity and `ADMIN_DATABASE_URL` for conftest derivation. This makes the 188-pass result honest in CI. Known Defect #1 is resolved.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
