@@ -132,7 +132,12 @@ We sell this to many companies at once from one installation. Each company is a 
 ## Blockers
 - NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
 
-## VQ-110 Progress (Current Task)
+## VQ-110 — Cross-tenant isolation test suite v1 (Merged to main)
+> **Verification status: Gates 1-4 code complete. Gates 3 and 6 are being re-run.**
+> The runs recorded below were executed as the `vaultiq` role, which is
+> `rolsuper = t, rolbypassrls = t` — so every RLS policy was inert. The suite
+> proves the application code refuses cross-tenant access; it does **not** yet
+> prove the database refuses it. See Known Defects.
 ### Gate 1: Approach Note ✅
 - `APPROACH_VQ110.md` written — fixture design, route manifest, coverage guard, test matrix, body leak checks
 
@@ -177,16 +182,17 @@ We sell this to many companies at once from one installation. Each company is a 
 - `requirements.txt`: added `email-validator==2.1.0` — `app/schemas/tenant.py` uses pydantic `EmailStr`
 - `alembic/versions/006_sessions_tenant_nullable.py`: `sessions.tenant_id` is NULL for super-admin sessions (VQ-101 AC3, model `nullable=True`), but migration 002 declared NOT NULL so fresh migrations (CI) rejected super-admin logins/fixtures; older/local DBs were already nullable. Round-trip upgrade→downgrade→upgrade verified
 
-### Gate 6: Live Container Verify ✅
+### Gate 6: Live Container Verify ✅ (being re-run)
 - Started uvicorn `app.main:app` against Docker PG (port 5433) on 127.0.0.1:8000
 - Ran full isolation suite with `LIVE_BASE_URL=http://127.0.0.1:8000` → **36/36 passed**
 - uvicorn access log: **1672 real HTTP requests** over the wire (not in-process), including cross-tenant `GET /documents/{id}/preview|download` → **404 Not Found** with body `{"detail":"Document not found"}` (refusal without existence leak)
 - Super-admin auth has a pre-existing RLS bug (users table FORCE RLS filters NULL-tenant in `get_current_user`); isolation suite itself passes because it uses token-based cross-tenant checks that don't require super-admin admin endpoints
+- **Caveat:** uvicorn was connected as the `vaultiq` superuser, so RLS was inert during this run. Re-running as `vaultiq_app`.
 
 ### Next Gates (Pending)
 - Gate 5: Code review
-- Gate 6: Live container verify ✅ — **isolation suite (36 tests) passed against live uvicorn**; uvicorn log shows 1672 real HTTP requests including cross-tenant 404 refusals
 - Gate 7: Demo Friday
+- **Gates 3 and 6: re-verification in progress** — the original runs were done as the RLS superuser, so they do not demonstrate that the *database* refuses cross-tenant access. Re-running with the app connected as `vaultiq_app` (NOBYPASSRLS).
 
 ## Completed
 ### VQ-101 — Tenant data model and migration ✅
@@ -413,9 +419,16 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
 
-### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **ALL GATES ✅ (1-7)**
+### VQ-102 — Database-level tenant isolation [BE][W2][P0][8pt] — **Gates 1-4, 6 ✅ (ACs 4 & 6 open, see below)**
 **Depends on:** VQ-101, VQ-103
 **Objective:** Even if application code has a bug, the database itself must refuse to return, change or delete one tenant's data to a session acting for another tenant.
+
+> **Evidence caveat:** the 15 RLS tests in `test_rls.py` are the only tests that
+> connect as `vaultiq_app`, and they exercise the ORM/SQL layer directly rather
+> than the HTTP endpoints. So VQ-102's core claim — that the *database* refuses
+> cross-tenant access — is proven at the query layer but **not yet proven through
+> the application request paths**, because the suite runs as the RLS superuser
+> everywhere else. See Known Defects.
 
 **Completed:**
 - Gate 1: Approach note drafted — policy design, tenant context via SET LOCAL, DB roles (vaultiq_app, vaultiq_super_admin), connection pool implications
@@ -485,9 +498,16 @@ Each tenant's uploaded files are kept physically separate, and no user-supplied 
 ### VQ-107 — Tenant lifecycle: create, suspend, reactivate, invite first admin [BE][W2][P0][5pt] — **ALL GATES ✅ (1-7)**
 **Depends on:** VQ-105, VQ-106
 **Branch:** `vq-107-tenant-lifecycle`
-**PR:** #8
+**PR:** #8 (merged)
 **Note:** Tracked as Sprint 3 in Asana but Sprint 2 here per our plan.
 **Objective:** The platform operator can bring a new client organisation onto VaultIQ, pause it, and resume it, without touching the database by hand — and without needing internet or email.
+
+> **Evidence caveat:** the Gate 6 run exercised the full create → invite →
+> accept → suspend → refused sequence, but as the `vaultiq` superuser, so the
+> RLS policies on `users`/`sessions`/`invites` were inert. The sequence itself
+> is genuine; it has not yet been shown to hold with the policies enforced.
+> The super-admin identity is additionally broken under `vaultiq_app` — see
+> Known Defects.
 
 **Completed:**
 - Gate 1: Approach note — `APPROACH_VQ107.md` (endpoints, invite code design, suspend semantics, risks)
@@ -640,9 +660,9 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 **Tasks (Asana order: 102 → 106 → 107 → 110):**
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
-| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | **ALL GATES ✅ (1-7)** |
+| VQ-102 | Database-level tenant isolation — RLS policies on all tenant-scoped tables, automated cross-tenant read test, role enforcement | VQ-101, VQ-103 | **Gates 1-4, 6 ✅ (ACs 4 & 6 open, see below)** |
 | VQ-106 | Role and permission model — permissions matrix, decorator enforcement, Super Admin denied on content | VQ-105 | **Gates 1-6 ✅** |
-| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-4, 6 ✅** |
+| VQ-107 | Tenant lifecycle — create, suspend/reactivate, invite first Client Admin, audit trail | VQ-105, VQ-106 | **Gates 1-7 ✅, evidence caveat (see above)** |
 | VQ-110 | Cross-tenant isolation test suite v1 — automated proof that tenant A cannot touch tenant B through any operation | VQ-102, VQ-106 | Merged to main. Gates 1-4 code complete; **Gate 3 + Gate 6 evidence being re-verified** (see Known Defects) |
 
 **Must Be True by Friday:**
@@ -663,9 +683,16 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
 
-### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4, 6 ✅**
+### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4 ✅, Gate 6 INVALID**
 **Depends on:** VQ-104, VQ-106
 **Objective:** A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
+
+> ⚠️ **Gate 6 evidence previously recorded here was wrong and has been withdrawn.**
+> It claimed "163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`".
+> The suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`, so RLS
+> was inert for every one of those 163 tests. The `vaultiq_app` role is created
+> and granted in CI but the app never connects as it. Gate 6 must be re-run.
+> This story cannot be signed off until it is.
 
 **Completed:**
 - Content-based MIME detection (libmagic + OLE/OOXML/ODF/EPUB/EML signatures)
@@ -675,16 +702,16 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - Per-file (50MB) + per-tenant quota enforcement with advisory lock, pre-save check
 - Role restriction: client_admin only for POST /documents
 - Extraction metadata persisted (text, method, status, pages, truncated)
-- RLS hardened for app-role (vaultiq_app, BYPASSRLS=false)
+- RLS policies written for the app-role (`vaultiq_app`, NOBYPASSRLS) — **but never actually exercised; see Known Defects**
 - Docker image with offline runtime (libmagic, poppler, tesseract, olefile)
 - CI updated with OCR_REQUIRED=true, internal network verification
-- Full test suite: 163 tests passing in Linux container (216s)
+- Full test suite: 163 tests passing (216s) — **as the RLS superuser**
 
-**Gate 6 Evidence — Live Container:**
-- 163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`, internal Docker network
-- All 19 formats accepted; PHP MIME rejected
-- Quota/RLS/role checks verified
-- OCR completed for scanned PDF/PNG/JPEG/TIFF; non-OCR formats report `not_required`
+**Gate 6 Evidence — Live Container (WITHDRAWN, to be re-run):**
+- ~~163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`~~ — **not true; the run used the `vaultiq` superuser**
+- All 19 formats accepted; PHP MIME rejected (this part was observed and stands)
+- Quota/RLS/role checks verified — quota and role yes; RLS untested under enforcement
+- OCR completed for scanned PDF/PNG/JPEG/TIFF; non-OCR formats report `not_required` (stands)
 
 **Acceptance Criteria Status:**
 1. ✅ All 19 formats + OCR path work
@@ -693,7 +720,7 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 4. ✅ File type judged from content (libmagic + signature detection)
 5. ✅ Employees blocked (403)
 
-**Pending:** Gate 5 (code review), Gate 7 (demo)
+**Pending:** Gate 5 (code review), Gate 6 (re-run under `vaultiq_app`), Gate 7 (demo)
 
 ---
 
@@ -716,16 +743,28 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
 
 ## RLS Policy
-- Enabled on users table (FORCE ROW LEVEL SECURITY)
-- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
-- Enabled on sessions table (FORCE ROW LEVEL SECURITY)
-- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
-- Enabled on documents table (FORCE ROW LEVEL SECURITY)
-- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
-- Enabled on invites table (FORCE ROW LEVEL SECURITY)
-- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
-- Enabled on audit_logs table (FORCE ROW LEVEL SECURITY)
-- Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
+Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
+`tenant_id = current_setting('app.current_tenant', true)::uuid`
+- users, sessions, documents, invites, audit_logs
+- Plus `invites` SELECT policy `invite_lookup_by_code` for invite acceptance
+  (`app.invite_accept_code`)
+
+> ⚠️ **None of these policies have a branch for `tenant_id IS NULL`.** VQ-101 AC3
+> requires platform (Super Admin) accounts to have no tenant, so those rows exist
+> and are unreachable by policy. Under `vaultiq_app` this means super-admin login
+> returns 401 and inserting a super-admin session is rejected outright. This is
+> Known Defect #2 and must be fixed before VQ-202.
+>
+> Also note `documents` uses `current_setting('app.current_tenant'::text)` with no
+> `missing_ok` argument, unlike the other four — so a query against `documents`
+> with the setting unset raises an error instead of returning no rows.
+
+## Test Counts (two numbers, both real)
+- **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
+- **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
+  upload/OCR/quota tests. Not on main.
+
+Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
@@ -753,24 +792,27 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - GET /documents/usage — Storage stats (count, bytes, MB)
 
 ## Project Structure
+> Reflects **main** as of `19ea79f` (VQ-110 merged). VQ-201's branch adds
+> `app/services/ocr.py`, `app/services/file_detection.py` and migrations 007/008.
+
 ```
 app/
   __init__.py
   config.py          — Settings (pydantic-settings)
-database.py        — Async SQLAlchemy engine, session, Base + set_tenant_context
+  database.py        — Async SQLAlchemy engine, session, Base + set_tenant_context
   main.py            — FastAPI app with routers
   auth/
     __init__.py
     password.py      — bcrypt hash/verify + strength validation
     jwt.py           — create_access_token, decode_token (PyJWT)
-    dependencies.py  — get_current_user FastAPI dependency
+    dependencies.py  — get_current_user, get_current_user_with_tenant
     permissions.py   — ROLE_MATRIX, require_roles()
   models/
     __init__.py
     base.py
     tenant.py        — Tenant model
     user.py          — User model
-session.py       — Session model (token tracking, revocation, tenant_id)
+    session.py       — Session model (token tracking, revocation, tenant_id)
     document.py      — Document model
     invite.py        — Invite model
     audit_log.py     — AuditLog model
@@ -783,21 +825,24 @@ session.py       — Session model (token tracking, revocation, tenant_id)
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
-tenant.py        — TenantCreate, TenantResponse, TenantStatus
+    tenant.py        — TenantCreate, TenantResponse, TenantStatus
     user.py          — UserCreate, UserResponse
     document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
   services/
     storage.py       — File save/delete with tenant isolation
 tests/
   __init__.py
-conftest.py        — DB fixtures (async engine, session, db_conn, app_db_engine, app_db_session)
+  conftest.py        — DB fixtures (async engine, session, db_conn, app_db_conn,
+                       app_db_engine, app_db_session, tenant_a/tenant_b, tokens)
+  isolation_manifest.py   — Route manifest, single source of truth for VQ-110 coverage
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
   test_tenant_context.py — 5 tests for VQ-103
-  test_documents.py  — 13 tests for VQ-104
+  test_documents.py  — 18 tests for VQ-104/VQ-106
   test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
   test_permissions.py — 21 tests for VQ-106
   test_tenant_lifecycle.py — 21 tests for VQ-107
+  test_isolation_suite.py — VQ-110 cross-tenant suite + route coverage guard
 alembic/
   env.py
   versions/
@@ -815,12 +860,25 @@ alembic/
     test.yml         — CI pipeline (PostgreSQL, alembic, pytest)
 ```
 
+### Debris on the VQ-201 branch (not on main — remove before merging PR #10)
+- `commit_msg.txt` — an accidentally committed commit-message scratch file. It is
+  also where the super-admin RLS bug got noted and then buried.
+- `test_health.py` — debug script at repo root, hardcoded to port 8001, gets
+  collected by pytest.
+
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
-- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
+- Steps: checkout → build image (libmagic/poppler/tesseract) → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+
+> ⚠️ **CI runs the application as the `vaultiq` superuser, not `vaultiq_app`.**
+> The pytest step sets `DATABASE_URL` with the `vaultiq` credentials, and that
+> role is `rolsuper = t, rolbypassrls = t`. CI therefore creates and grants the
+> `vaultiq_app` role but never connects as it, so **every RLS policy is inert in
+> CI**. This is Known Defect #1. The fix is to split the identities: seed and
+> migrate as the superuser, run the application under test as `vaultiq_app`.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
