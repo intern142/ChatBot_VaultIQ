@@ -108,9 +108,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
+- Current branch: `vq-202-approval-versioning` (off main @ `9e5ecc8`)
+- Current task: **VQ-202** — Approval workflow and document versions (Gates 1-3 done, PR not yet opened)
+- Also open: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`, Gate 6 evidence withdrawn)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
+- Test suite on `vq-202-approval-versioning`: **145 passed / 17 failed / 1 error** — all 18 are Known Defect #2 (super-admin RLS), none from VQ-202
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 
 ## Known Defects (must be fixed before VQ-202)
@@ -682,6 +684,44 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 ```
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
+
+### VQ-202 — Approval workflow and document versions [BE][W3][P0][5pt] — **Gates 1-3 ✅, Gates 4-7 pending**
+**Branch:** `vq-202-approval-versioning` (off `main` @ `9e5ecc8`) · **Depends on:** VQ-201 (not merged)
+**Objective:** Only documents a Client Admin has approved can ever answer a question, and replacing a document never leaves two versions answering at once.
+
+**Acceptance Criteria Status:**
+1. ✅ Pending → Approved → Archived; only Approved searchable — all legal transitions live in `app/services/approval.py`; `searchable_filter()` is the single definition of "searchable", used by the approved-set endpoint
+2. ✅ Client Admin approve/reject with an optional note — `POST /documents/{id}/approve` and `/reject`, `client_admin` only
+3. ✅ New version creates a Pending version; approving retires the previous atomically — partial unique index + single transaction, retire-before-promote
+4. ✅ Version history visible to the Client Admin — `GET /documents/{id}/versions`
+5. ✅ `tenants.knowledge_base_version` bumped on approve **only** — rejecting a pending version does not change the approved set, so bumping would invalidate every cached answer for nothing
+
+**The invariant, and where it lives.** AC3 requires *no moment where both or neither* version is searchable. Two layers:
+
+- **Database, structural:** `uq_documents_one_approved_per_group` — partial unique index on `document_group_id WHERE status = 'approved'`. Verified with raw SQL: a hand-written INSERT approving a second version is refused with `duplicate key value violates unique constraint uq_documents_one_approved_per_group`. A route-handler bug cannot produce two versions answering at once.
+- **Application, one transaction:** retire the outgoing version **before** promoting the incoming one — the reverse order transiently holds two approved rows and trips the index mid-transaction. `FOR UPDATE` on the group serialises two admins approving concurrently.
+
+`test_exactly_one_approved_at_every_point` re-reads the approved set after every step of the v1→v2 sequence and asserts it is exactly `{}` → `{v1}` → `{v1}` → `{v2}`.
+
+**Bugs found and fixed on this branch**
+- **The `documents` RLS policy was the only tenant table created without `missing_ok`.** `current_setting('app.current_tenant'::text)` with no second argument *raises* `unrecognized configuration parameter` instead of returning NULL, so any `documents` query in a transaction that never set the context was a 500, not an empty result. Reachable in normal use: `SET LOCAL` is transaction-scoped, so `db.refresh()` after commit runs in a fresh transaction with the setting gone. Fixed to fail closed with zero rows.
+- `db.refresh()` after commit now re-establishes the tenant context first, in both the upload route and the approval service.
+- `users.documents` / `documents.uploader` now name their FK explicitly — `uploaded_by` and `approved_by` both reference `users.id`, which raised `AmbiguousForeignKeysError`.
+
+**Gate status**
+- **Gate 1** ✅ `APPROACH_VQ202.md` — state machine, versioning model, transaction boundaries
+- **Gate 2** ✅ migration 007, models, `app/services/approval.py`, 4 endpoints, schemas
+- **Gate 3** ✅ `tests/test_approval.py` **26/26**. Full suite **17 failed / 145 passed / 1 error** — all 18 are the pre-existing super-admin defect (Known Defect #2), none from VQ-202
+- **Gate 4** pending — self-review, then PR
+- **Gate 5** pending — code review
+- **Gate 6** ⛔ **cannot be executed as written.** It requires *"ask a question and show only v2 content"*, but there is no question/search endpoint — search is VQ-203. `GET /documents/searchable/approved` exists as an honest stand-in: it takes no query, does no ranking, returns no content, and is documented in the schema as explicitly *not* a search. Needs the lead's ruling on whether that satisfies the gate.
+- **Gate 7** pending — demo
+
+**Prerequisite commit (not VQ-202 work).** `39a1626` ports the auth-context fix from `vq-201-tenant-upload`. Without it the suite cannot be trusted: on `main` no tenant user can log in at all under `vaultiq_app` (50 failed / 15 errors / 72 passed → 32 failed after the port). Deliberately *not* ported: the `NullPool` → `pool_pre_ping` change and the VQ-106 role checks, so that commit stays a blocker fix only.
+
+> ⚠️ **VQ-202 depends on VQ-201, which is not merged.** Both branches add a migration whose parent is `006_sessions_tenant_nullable`, so a merge revision will be needed. VQ-202 was built off `main` as instructed and therefore does not contain VQ-201's `category` / quota / OCR work.
+
+---
 
 ### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4 ✅, Gate 6 INVALID**
 **Depends on:** VQ-104, VQ-106
