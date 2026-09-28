@@ -93,8 +93,32 @@ def upgrade() -> None:
         sa.Column("knowledge_base_version", sa.Integer(), nullable=False, server_default="1"),
     )
 
+    # The documents policy was created by the VQ-104 migration as
+    #   current_setting('app.current_tenant'::text)      <- no missing_ok
+    # Every other tenant table passes true as the second argument. Without it
+    # Postgres raises `unrecognized configuration parameter "app.current_tenant"`
+    # instead of returning NULL, so any query on documents in a transaction that
+    # never set the context is a 500 rather than an empty result. That is reachable
+    # in normal operation: SET LOCAL is transaction-scoped, so a refresh after
+    # commit runs in a fresh transaction with the setting gone.
+    #
+    # With missing_ok the expression yields NULL, the comparison is never true, and
+    # the query returns zero rows. That is the behaviour VQ-102 AC3 asks for - a
+    # no-tenant session sees nothing - and it fails closed rather than erroring.
+    op.execute("DROP POLICY IF EXISTS tenant_isolation ON documents")
+    op.execute(
+        "CREATE POLICY tenant_isolation ON documents "
+        "USING (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+    )
+
 
 def downgrade() -> None:
+    op.execute("DROP POLICY IF EXISTS tenant_isolation ON documents")
+    op.execute(
+        "CREATE POLICY tenant_isolation ON documents "
+        "USING (tenant_id = current_setting('app.current_tenant'::text)::uuid)"
+    )
+
     op.drop_column("tenants", "knowledge_base_version")
 
     op.execute("DROP INDEX IF EXISTS uq_documents_one_approved_per_group")

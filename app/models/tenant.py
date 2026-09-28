@@ -23,6 +23,12 @@ class Tenant(Base):
         default="active",
     )
     storage_quota_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=2048)
+    # VQ-202: bumped whenever this tenant's approved set changes, so cached answers
+    # can be invalidated without rescanning the corpus. Bumped on approve only -
+    # rejecting a pending version leaves the approved set untouched.
+    knowledge_base_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
