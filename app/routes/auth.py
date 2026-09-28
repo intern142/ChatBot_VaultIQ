@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db, set_tenant_context
+from app.database import (
+    apply_token_context,
+    get_db,
+    set_platform_context,
+    set_tenant_context,
+)
 from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -48,6 +53,12 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     start = datetime.now(timezone.utc)
 
     if request.organisation_code == "SUPER":
+        # Platform rows carry tenant_id IS NULL and are invisible to the tenant
+        # policy, so the platform context has to be set before the lookup, not
+        # after it. organisation_code is caller input, but it only decides which
+        # of two lookups runs; the policy still requires role = 'super_admin' and
+        # app.platform_access, so guessing "SUPER" grants nothing on its own.
+        await set_platform_context(db)
         result = await db.execute(
             select(User).where(
                 User.email == request.email,
@@ -119,6 +130,13 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     if user.tenant_id:
         await set_tenant_context(db, str(user.tenant_id))
+    else:
+        # Re-set rather than rely on the one set before the lookup above. Any
+        # commit in between - including the failed-login bookkeeping - ends the
+        # transaction, and set_config(..., true) is transaction-scoped, so the
+        # context is gone by this point. Without it the session INSERT below
+        # has no matching policy and fails with InsufficientPrivilegeError.
+        await set_platform_context(db)
 
     session = Session(
         user_id=user.id,
@@ -164,6 +182,12 @@ async def refresh(
 
     if user.tenant_id:
         await set_tenant_context(db, str(user.tenant_id))
+    else:
+        # After the commit above the transaction, and with it the platform
+        # context, is gone. The SELECT at the top of this handler ran inside
+        # whatever context get_current_user left behind, so it is re-established
+        # here before the new session row is written.
+        await set_platform_context(db)
 
     new_session = Session(
         user_id=user.id,
@@ -204,9 +228,7 @@ async def logout(
         )
 
     jti = payload.get("jti")
-    tenant_id = payload.get("tenant_id")
-    if tenant_id:
-        await set_tenant_context(db, tenant_id)
+    await apply_token_context(db, payload)
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
 

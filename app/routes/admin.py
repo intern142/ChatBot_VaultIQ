@@ -279,6 +279,10 @@ async def create_invite(
     )
 
     await db.commit()
+    # Re-set tenant context before refresh; the commit ended the transaction
+    # and with it the SET LOCAL context. The invite has tenant_id so the
+    # tenant_isolation policy requires the context to be present.
+    await set_tenant_context(db, str(tenant_id))
     await db.refresh(invite)
     return invite
 
