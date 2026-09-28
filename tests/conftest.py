@@ -52,6 +52,20 @@ def use_test_app_database():
         app.dependency_overrides[get_db] = previous
 
 
+@pytest.fixture(scope="session")
+def event_loop():
+    """Single event loop for the whole suite.
+
+    The app creates a module-level async engine (app.database). Routing each
+    test through its own event loop means the pool can hand a connection bound
+    to a previously-closed loop to a later test (asyncpg flakes). A shared
+    session loop keeps every pooled connection on a live loop.
+    """
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
 @pytest.fixture(scope="function")
 def db_conn():
     conn = psycopg2.connect(settings.DATABASE_URL_SYNC)
@@ -78,7 +92,7 @@ async def db_engine():
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        poolclass=NullPool,
+        pool_pre_ping=True,
     )
     # Truncate at start of each test function
     async with engine.begin() as conn:
@@ -105,7 +119,7 @@ async def app_db_engine():
     engine = create_async_engine(
         app_url,
         echo=False,
-        poolclass=NullPool,
+        pool_pre_ping=True,
     )
     yield engine
     await engine.dispose()
@@ -117,7 +131,7 @@ async def app_db_session(app_db_engine):
     admin_engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        poolclass=NullPool,
+        pool_pre_ping=True,
     )
     async with admin_engine.begin() as conn:
         await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
@@ -129,6 +143,7 @@ async def app_db_session(app_db_engine):
     )
     async with session_factory() as session:
         yield session
+
 
 # ---- Isolation suite fixtures ----
 
@@ -263,8 +278,11 @@ def token_b_emp(tenant_b):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def super_admin_token(db_conn):
-    async with test_app_engine.begin() as conn:
+async def super_admin_token(db_conn, db_engine):
+    # Both db_conn and db_engine truncate on setup. Requesting both here forces
+    # both truncates to happen before this fixture seeds, so a test that also
+    # asks for db_conn cannot truncate the super admin row away afterwards.
+    async with db_engine.begin() as conn:
         result = await conn.execute(text("""
             INSERT INTO users (tenant_id, email, password_hash, role)
             VALUES (NULL, 'super@vaultiq.com', :ph, 'super_admin')
@@ -289,9 +307,8 @@ async def doc_a(async_client, token_a_admin):
     """Upload a document for tenant A."""
     file_content = b"Tenant A document content"
     files = {"file": ("test_a.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_a_admin}"}
-    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
+    resp = await async_client.post("/documents", files=files, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
@@ -301,9 +318,8 @@ async def doc_b(async_client, token_b_admin):
     """Upload a document for tenant B."""
     file_content = b"Tenant B document content"
     files = {"file": ("test_b.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_b_admin}"}
-    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
+    resp = await async_client.post("/documents", files=files, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
