@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
-from app.models.document import Document
+from app.models.document import Document, DocumentJob
 from app.models.user import User
 from app.schemas.document import (
     DocumentResponse,
     DocumentListResponse,
     StorageUsageResponse,
+    ProcessingStatusResponse,
 )
 from app.services.storage import (
     save_uploaded_file,
@@ -93,6 +94,15 @@ async def upload_document(
         uploaded_by=current_user.id,
     )
     db.add(document)
+
+    # Enqueue processing job (idempotent by document_id + payload)
+    job = DocumentJob(
+        tenant_id=uuid.UUID(tenant_id),
+        document_id=document_id,
+        payload={"action": "index", "version": 1},
+    )
+    db.add(job)
+
     await db.commit()
     await db.refresh(document)
 
@@ -289,3 +299,107 @@ async def delete_document(
         )
     )
     await db.commit()
+
+
+@router.get("/{document_id}/status", response_model=ProcessingStatusResponse)
+async def get_document_status(
+    document_id: uuid.UUID,
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant_id = current_user_tenant
+
+    from app.models.document import DocumentJob, JobStatus
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.tenant_id == uuid.UUID(tenant_id)
+        )
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Get the latest job for this document
+    job_result = await db.execute(
+        select(DocumentJob)
+        .where(DocumentJob.document_id == document_id)
+        .order_by(DocumentJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+
+    return ProcessingStatusResponse(
+        document_id=document.id,
+        processing_status=document.processing_status,
+        processing_error=document.processing_error,
+        processing_started_at=document.processing_started_at,
+        processing_completed_at=document.processing_completed_at,
+        processing_version=document.processing_version,
+        job=job,
+    )
+
+
+@router.post("/{document_id}/reprocess", response_model=ProcessingStatusResponse)
+async def reprocess_document(
+    document_id: uuid.UUID,
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant_id = current_user_tenant
+
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.tenant_id == uuid.UUID(tenant_id)
+        )
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Increment processing version and enqueue new job
+    document.processing_version += 1
+    document.processing_status = ProcessingStatus.queued
+    document.processing_error = None
+    document.processing_started_at = None
+    document.processing_completed_at = None
+
+    job = DocumentJob(
+        tenant_id=uuid.UUID(tenant_id),
+        document_id=document_id,
+        payload={"action": "index", "version": document.processing_version},
+    )
+    db.add(job)
+
+    await db.commit()
+    await db.refresh(document)
+
+    # Return updated status
+    job_result = await db.execute(
+        select(DocumentJob)
+        .where(DocumentJob.document_id == document_id)
+        .order_by(DocumentJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+
+    return ProcessingStatusResponse(
+        document_id=document.id,
+        processing_status=document.processing_status,
+        processing_error=document.processing_error,
+        processing_started_at=document.processing_started_at,
+        processing_completed_at=document.processing_completed_at,
+        processing_version=document.processing_version,
+        job=job,
+    )

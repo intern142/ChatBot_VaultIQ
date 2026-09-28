@@ -2,6 +2,47 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 import uuid
+import enum
+
+
+class ProcessingStatus(str, enum.Enum):
+    queued = "queued"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
+
+
+class JobStatus(str, enum.Enum):
+    queued = "queued"
+    processing = "processing"
+    done = "done"
+    failed = "failed"
+
+
+class JobResponse(BaseModel):
+    id: uuid.UUID
+    status: JobStatus
+    retry_count: int
+    max_retries: int
+    last_error: Optional[str] = None
+    payload: dict
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProcessingStatusResponse(BaseModel):
+    document_id: uuid.UUID
+    processing_status: ProcessingStatus
+    processing_error: Optional[str] = None
+    processing_started_at: Optional[datetime] = None
+    processing_completed_at: Optional[datetime] = None
+    processing_version: int
+    job: Optional[JobResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DocumentBase(BaseModel):
