@@ -68,10 +68,15 @@ async def process_job(db: AsyncSession, job: DocumentJob) -> None:
         try:
             await process_document(db, tenant_id, document_id, job.id)
         except Exception as e:
+            # The context is transaction-scoped and process_document committed
+            # before it raised, so it must be re-established here. Without this
+            # the retry UPDATE matches no rows under RLS and the job is neither
+            # re-queued nor marked failed - it silently disappears.
+            await set_tenant_context(db, str(tenant_id))
             # Retry logic
             if job.retry_count < job.max_retries:
                 job.retry_count += 1
-                job.status = "queued"
+                job.status = JobStatus.queued
                 job.last_error = str(e)
                 # Exponential backoff: schedule for later
                 delay = BASE_RETRY_DELAY_SECONDS * (2 ** (job.retry_count - 1))
@@ -81,7 +86,7 @@ async def process_job(db: AsyncSession, job: DocumentJob) -> None:
                 print(f"Job {job.id} failed, retry {job.retry_count}/{job.max_retries} in {delay}s: {e}")
             else:
                 # Max retries exceeded - mark as failed
-                job.status = "failed"
+                job.status = JobStatus.failed
                 job.completed_at = datetime.now(timezone.utc)
                 job.last_error = f"Max retries exceeded: {e}"
                 await db.commit()

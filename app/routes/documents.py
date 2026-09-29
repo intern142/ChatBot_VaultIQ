@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status,
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.database import get_db, set_tenant_context
 from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
-from app.models.document import Document, DocumentJob
+from app.models.document import Document, DocumentJob, ProcessingStatus
 from app.models.user import User
 from app.schemas.document import (
     DocumentResponse,
@@ -104,6 +104,10 @@ async def upload_document(
     db.add(job)
 
     await db.commit()
+    # Re-establish the tenant context: it is transaction-scoped, so the commit
+    # above dropped it and the refresh would otherwise re-SELECT as a no-tenant
+    # session, find nothing under RLS, and raise ObjectDeletedError.
+    await set_tenant_context(db, tenant_id)
     await db.refresh(document)
 
     return document
@@ -383,6 +387,8 @@ async def reprocess_document(
     db.add(job)
 
     await db.commit()
+    # Context is transaction-scoped; see upload_document for why this is needed.
+    await set_tenant_context(db, tenant_id)
     await db.refresh(document)
 
     # Return updated status

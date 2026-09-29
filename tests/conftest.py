@@ -145,6 +145,23 @@ async def app_db_session(app_db_engine):
         yield session
 
 
+@pytest_asyncio.fixture(scope="function")
+async def app_session(app_db_engine):
+    """Session on app identity (vaultiq_app), NOBYPASSRLS, no truncate.
+
+    Built from app_db_engine fixture rather than the application's
+    AsyncSessionLocal, because the latter is wired to settings.DATABASE_URL -
+    the superuser. Reusing it here would silently make every assertion below
+    vacuous, which is precisely the trap this module exists to close.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+    factory = async_sessionmaker(
+        app_db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with factory() as session:
+        yield session
+
+
 # ---- Isolation suite fixtures ----
 
 @pytest_asyncio.fixture(scope="function")

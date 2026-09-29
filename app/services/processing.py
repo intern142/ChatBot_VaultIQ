@@ -5,6 +5,7 @@ Handles text extraction, chunking, embedding, and indexing of documents.
 
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 from app.config import get_settings
@@ -111,10 +112,18 @@ async def process_document(
     2. Extract text
     3. Chunk text
     4. Embed chunks (FastEmbed)
-    4. Store chunks + embeddings in pgvector
-    5. Mark job done, document ready
+    5. Store chunks + embeddings in pgvector
+    6. Mark job done, document ready
 
     Raises exceptions on failure for retry logic.
+
+    Every commit below ends the transaction, and the tenant context is set with
+    set_config(..., is_local=true), which does not survive a commit. Each write
+    that follows a commit therefore re-establishes the context first. Without
+    that the UPDATE runs as a no-tenant session, the RLS policy hides the row,
+    and SQLAlchemy raises StaleDataError or ObjectDeletedError instead of
+    writing. The job's tenant_id is used rather than a caller-supplied value,
+    and it is the same tenant the row was selected under.
     """
     from app.models.document import Document, DocumentJob, ProcessingStatus, JobStatus
     from sqlalchemy import select
@@ -158,10 +167,12 @@ async def process_document(
         # 4. Embed chunks (FastEmbed)
         embeddings = embed_chunks(chunks)
 
-        # 4. Store chunks + embeddings in pgvector
+        # 5. Store chunks + embeddings. store_chunks commits, which drops the
+        # context again, so it is re-established before the status writes below.
         await store_chunks(db, tenant_id, document_id, chunks, embeddings)
 
-        # 5. Success - mark job done, document ready
+        # 6. Success - mark job done, document ready
+        await set_tenant_context(db, str(tenant_id))
         document.processing_status = ProcessingStatus.ready
         document.processing_completed_at = datetime.now(timezone.utc)
         document.processing_error = None
@@ -172,6 +183,7 @@ async def process_document(
 
     except Exception as e:
         # Failure - will be handled by caller for retry logic
+        await set_tenant_context(db, str(tenant_id))
         document.processing_status = ProcessingStatus.failed
         document.processing_error = str(e)
         job.status = JobStatus.failed
@@ -201,61 +213,39 @@ async def store_chunks(
     chunks: list[str],
     embeddings: list[list[float]],
 ) -> None:
-    """Store text chunks and their embeddings in pgvector.
+    """Store text chunks and their embeddings.
 
-    Creates a document_chunks table if not exists.
+    The document_chunks table is created by migration 160ccbed24a5, not here.
+    Doing DDL from the application fails anyway: vaultiq_app has no CREATE on
+    schema public, so the worker would be unable to run its own pipeline.
     """
     from sqlalchemy import text
     from app.database import set_tenant_context
 
     await set_tenant_context(db, str(tenant_id))
 
-    # Ensure chunks table exists (created by migration if needed)
-    await db.execute(text("""
-        CREATE TABLE IF NOT EXISTS document_chunks (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-            document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-            chunk_index INTEGER NOT NULL,
-            content TEXT NOT NULL,
-            embedding vector(384),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE (document_id, chunk_index)
-        )
-    """))
+    # Rewrite in one statement so a retried job cannot leave a half-updated
+    # chunk set behind: the old rows are removed and the new ones inserted
+    # inside the caller's transaction.
+    await db.execute(
+        text("DELETE FROM document_chunks WHERE document_id = :document_id"),
+        {"document_id": document_id},
+    )
 
-    # Enable RLS on chunks table
-    await db.execute(text("""
-        ALTER TABLE document_chunks ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE document_chunks FORCE ROW LEVEL SECURITY;
-        DO $$ BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'document_chunks' AND policyname = 'tenant_isolation') THEN
-                CREATE POLICY tenant_isolation ON document_chunks
-                USING (tenant_id = current_setting('app.current_tenant', true)::uuid);
-            END IF;
-        END $$;
-    """))
-
-    # Grant to vaultiq_app
-    await db.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON document_chunks TO vaultiq_app"))
-
-    # Insert chunks
     for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
         await db.execute(
             text("""
-                INSERT INTO document_chunks (tenant_id, document_id, chunk_index, content, embedding)
+                INSERT INTO document_chunks
+                    (tenant_id, document_id, chunk_index, content, embedding)
                 VALUES (:tenant_id, :document_id, :chunk_index, :content, :embedding)
-                ON CONFLICT (document_id, chunk_index) DO UPDATE SET
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding
             """),
             {
                 "tenant_id": tenant_id,
                 "document_id": document_id,
                 "chunk_index": idx,
                 "content": chunk,
-                "embedding": embedding,
-            }
+                "embedding": str(embedding),
+            },
         )
 
     await db.commit()

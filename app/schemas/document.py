@@ -61,6 +61,11 @@ class DocumentResponse(DocumentBase):
     stored_filename: str
     uploaded_by: uuid.UUID
     created_at: datetime
+    processing_status: ProcessingStatus
+    processing_error: Optional[str] = None
+    processing_started_at: Optional[datetime] = None
+    processing_completed_at: Optional[datetime] = None
+    processing_version: int
 
     model_config = ConfigDict(from_attributes=True)
 
