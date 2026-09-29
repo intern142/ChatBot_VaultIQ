@@ -114,6 +114,11 @@ We sell this to many companies at once from one installation. Each company is a 
 - Test suite on this branch: **158 passed** (`python -m pytest tests/ -q`, 255s).
 - Test suite on main: 137 passed. Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103,
   104, 105, 106, 107, 110.
+- **Sprint 3 is 9 tasks, 37 pts: VQ-201, 202, 210, 203, 204, 301, 304, 305, 302.**
+  AGENTS.md was updated 2026-09-29 to carry all nine; it previously listed only four.
+  Specs live in `C:\Users\Test user 1\Documents\vqNNN.txt`. See "Sprint 3 / Week 3
+  Plan" for the tiered dependency flow.
+- **Nothing merges until all nine are complete.** Merge order to be decided then.
 - **Unmerged, all three open:** VQ-201 (PR #10, `CONFLICTING`), VQ-202 (PR #11,
   `MERGEABLE`), VQ-203 (PR #13). VQ-203 depends on both.
 
@@ -718,49 +723,175 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
-Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
+Sprint 3: VQ-201 → VQ-202 → VQ-210 → VQ-203 → VQ-204 → VQ-301 → VQ-304 → VQ-305 → VQ-302
 ```
 
-## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
+## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct) — 9 tasks, 37 pts
 
-### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4 ✅, Gate 6 INVALID**
-**Depends on:** VQ-104, VQ-106
+> Task specs are in `C:\Users\Test user 1\Documents\vqNNN.txt`. Read the spec
+> before starting a story; the summaries below are not a substitute for it.
+> The `HX-` prefixes in the specs' `Depends on:` lines mean `VQ-`.
+
+### Completion bar (agreed with lead, 2026-09-29)
+A story is **done** when Gates 1–4 and Gate 6 are complete. Gates 5 (code review)
+and 7 (demo) are tracked by the lead, not by me.
+
+> ⚠️ **The gate numbering is not consistent across the sprint.** VQ-201, VQ-202 and
+> VQ-203 use the 7-gate table: 4 = self-review, 6 = live container. **VQ-210 has
+> eight gates and is shifted**: 4 = benchmark, 5 = self-review, **6 = code
+> review**, 7 = live container, 8 = demo. Applying "Gates 1–4 and 6" literally to
+> VQ-210 would skip the live container entirely. **Treat the live-rebuilt-container
+> evidence as required for every story, whatever it is numbered.** VQ-301, VQ-302,
+> VQ-304 and VQ-305 list no gate table at all in their specs.
+
+### Dependency flow
+
+```
+TIER 0 — no unmerged dependencies, start immediately (10 pts)
+  VQ-201 (3)   needs VQ-104, VQ-106 — both merged
+  VQ-301 (5)   needs VQ-106, VQ-107 — both merged
+  VQ-304 (2)   needs VQ-107 — merged
+      (these three share nothing; run in parallel)
+
+TIER 1 — gated on Tier 0 (5 pts)
+  VQ-202 (5)   needs VQ-201
+
+TIER 2 (8 pts)
+  VQ-203 (8)   needs VQ-102, VQ-201 — DONE on vq-203, PR #13
+
+TIER 3 — gated on VQ-202 *and* on a story that does not exist (9 pts)
+  VQ-210 (2)   needs VQ-202 (KB version) + Q&A engine
+  VQ-305 (2)   needs VQ-202 (approved docs) + Q&A engine
+  VQ-204 (5)   needs VQ-102 (merged) + Q&A engine
+      (parallel with each other once unblocked)
+
+TIER 4 (5 pts)
+  VQ-302 (5)   needs VQ-202, VQ-301, VQ-305, VQ-210 + Q&A engine
+      (correctly last — it aggregates question history nothing else produces)
+
+Recommended sequence:
+  NOW (parallel)  VQ-201 → VQ-202 → VQ-203 ✓
+                  VQ-301
+                  VQ-304
+  BLOCKED         [ Q&A engine — needs a story ID ]
+                          ↓
+                  VQ-210 · VQ-204 · VQ-305   (parallel)
+                          ↓
+                  VQ-302
+```
+
+### The missing tier: no Q&A engine story exists
+
+**Sprint 3 contains no story that builds the question-and-answer pipeline.** Four
+tasks sit downstream of one that is not in the sprint and has no ID:
+
+| Task | What it needs from it |
+|------|----------------------|
+| VQ-210 | a previously computed answer to cache |
+| VQ-305 | an answer, and which documents were used |
+| VQ-204 | search itself — its AC is "search quality is unchanged" |
+| VQ-302 | 30 days of questions, confidence scores, knowledge gaps |
+
+VQ-203 builds the index and VQ-204 partitions it. Neither answers a question.
+Per the Week 4 line in the track brief ("Search is locked to one tenant. The
+AI-writing layer is gone"), this work is Sprint 4 and unlisted. Until it is
+written and built, the "must be proven" criteria for Tiers 3 and 4 cannot be met,
+because all of them require a question endpoint to ask through.
+
+**Open question for the lead:** what is the story ID for the Q&A engine, and is
+it Sprint 3 or Sprint 4? If Sprint 4, four of these nine move behind it and the
+sprint is really five tasks.
+
+### Task details
+
+#### VQ-201 — Document upload, tenant-scoped, with quota [LEAD][W3][P0][3pt]
+**Branch:** `vq-201-tenant-upload` · **PR:** #10 (`CONFLICTING`) · **Depends on:** VQ-104, VQ-106
 **Objective:** A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
+**AC:** 12 existing formats + scanned/OCR path still work · each upload records a category (Policy/HR/SOP/Process/Other) · per-file size limit and per-tenant quota enforced, nothing written when exceeded, clear reason · file type judged from content not name · employees cannot upload.
+**Must prove:** quota exceeded, type mismatch, employee refused · live container: one upload per format as Client Admin.
+**Status:** Gates 1–4 done. **Gate 6 withdrawn and must be re-run** — it claimed 163/163 tests under `vaultiq_app` with `BYPASSRLS=false`, but the run used the `vaultiq` superuser, so RLS was inert. ACs 1–5 code-complete.
+**Debris to remove before merge:** `commit_msg.txt`, `test_health.py` at repo root.
 
-> ⚠️ **Gate 6 evidence previously recorded here was wrong and has been withdrawn.**
-> It claimed "163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`".
-> The suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`, so RLS
-> was inert for every one of those 163 tests. The `vaultiq_app` role is created
-> and granted in CI but the app never connects as it. Gate 6 must be re-run.
-> This story cannot be signed off until it is.
+#### VQ-202 — Approval workflow and document versions [BE][W3][P0][5pt]
+**Branch:** `vq-202-approval-versioning` · **PR:** #11 (`MERGEABLE`) · **Depends on:** VQ-201
+**Objective:** Only documents a Client Admin has approved can ever answer a question, and replacing a document never leaves two versions answering at once.
+**AC:** Pending → Approved → Archived, only Approved take part in search · approve/reject with optional note · new version creates a Pending version, approving it retires the previous at the same moment · version history visible to Client Admin · **each tenant has a 'knowledge base version' that changes whenever its approved set changes** (later used to invalidate cached answers).
+**Must prove:** a Pending document never appears in results · approving v2 retires v1 with no moment where both or neither are searchable · live container: upload v1, approve, upload v2, approve, ask a question, only v2 content appears.
+**Note:** its migration fixes the super-admin RLS defect and the `documents` policy, but the `documents` fix is **incomplete** — it adds `missing_ok` without `NULLIF`. See Known Defect 3.
 
-**Completed:**
-- Content-based MIME detection (libmagic + OLE/OOXML/ODF/EPUB/EML signatures)
-- 19 allowed MIME types covering all HeXta formats + scanned PDF/images via OCR
-- Bounded offline OCR (tesseract + poppler) with timeouts, page/text caps, semaphore
-- Category enum per upload (policy/hr/sop/process/other)
-- Per-file (50MB) + per-tenant quota enforcement with advisory lock, pre-save check
-- Role restriction: client_admin only for POST /documents
-- Extraction metadata persisted (text, method, status, pages, truncated)
-- RLS policies written for the app-role (`vaultiq_app`, NOBYPASSRLS) — **but never actually exercised; see Known Defects**
-- Docker image with offline runtime (libmagic, poppler, tesseract, olefile)
-- CI updated with OCR_REQUIRED=true, internal network verification
-- Full test suite: 163 tests passing (216s) — **as the RLS superuser**
+#### VQ-210 — Cached answers are per tenant [BE][W3][P0][2pt]
+**Branch:** `vq-210-tenant-cache` · **Depends on (as written in spec):** VQ-101
+**Objective:** Reusing a previously computed answer must never hand one tenant's answer to another tenant, or one role's answer to a role that should not see it.
+**AC:** a cached answer is only reused by the same tenant, same access scope, same question, against the same knowledge base version · cached answers treated as tenant data and protected like any other · changing the approved document set invalidates that tenant's cached answers.
+**Must prove:** tenant A asks, tenant B asks the identical question, B does not get a cache hit · live container: hit/miss behaviour across two tenants.
+**Gates:** 8, and the numbering differs — Gate 4 is a benchmark (`evaluation/run_benchmark.py` before and after, paste both, any regression = revert), Gate 5 self-review, Gate 6 code review, Gate 7 live container, Gate 8 demo.
+> ⚠️ **The spec's `Depends on: VQ-101` is wrong.** AC1 and AC3 both require the
+> knowledge base version, which is introduced by **VQ-202 AC5**. 210 genuinely
+> needs 202. It happens to sit after 202 in the agreed order, but a re-sort by
+> the `Depends on:` lines would put 210 first and the cache key would have
+> nothing to key on. **Correct the task.**
+> ⚠️ **Gate 4 requires `evaluation/run_benchmark.py`, which is not in the repo.**
 
-**Gate 6 Evidence — Live Container (WITHDRAWN, to be re-run):**
-- ~~163/163 tests passed with `vaultiq_app` role, `BYPASSRLS=false`~~ — **not true; the run used the `vaultiq` superuser**
-- All 19 formats accepted; PHP MIME rejected (this part was observed and stands)
-- Quota/RLS/role checks verified — quota and role yes; RLS untested under enforcement
-- OCR completed for scanned PDF/PNG/JPEG/TIFF; non-OCR formats report `not_required` (stands)
+#### VQ-203 — Per-tenant document processing queue [BE][W3][P0][8pt]
+**Branch:** `vq-203` · **PR:** #13 · **Depends on:** VQ-102, VQ-201
+**Objective:** Uploaded documents are read, split and indexed in the background, per tenant, so a client uploading a large batch never slows down another client.
+**AC:** processing runs separately from the live Q&A service · each job belongs to one tenant and one document version, and a job for one tenant can never write results tagged for another · a cap limits one tenant's processing, others keep progressing · failures retried a limited number of times then reported with a human-readable reason · Client Admin sees queued/processing/ready/failed-with-reason · re-running the same version creates no duplicates · a document is only marked ready once everything needed to answer from it is fully stored.
+**Must prove:** two tenants each queue 20 documents and both progress · a worker crash mid-job leaves nothing partial visible · cross-tenant write impossible · live container: statuses over time for two tenants, and a kill-and-restart of the worker.
+**Status:** Gates 1–4 and 6 done — 158 tests green, worker proven live as a real process against `vaultiq_app`. See `VQ203_SELF_REVIEW.md`. Gate 6 gap: the worker is not in the Dockerfile, so "separate from the live service" holds for the code but not the deployed artifact.
 
-**Acceptance Criteria Status:**
-1. ✅ All 19 formats + OCR path work
-2. ✅ Category recorded per upload
-3. ✅ Quota enforced before persistent write; clear error messages
-4. ✅ File type judged from content (libmagic + signature detection)
-5. ✅ Employees blocked (403)
+#### VQ-204 — Tenant-partitioned search index [BE][W3][P0][5pt]
+**Branch:** not started · **Depends on:** VQ-102
+**Objective:** Search stays fast as the number of clients grows, and each client's indexed content is physically grouped so one client's growth does not degrade another's search.
+**AC:** indexed text and vectors stored per tenant in the way the Sprint 0 spike showed to be sound · creating a new tenant automatically prepares its index space, first upload works with no manual steps · **existing ADS data is migrated into the new layout** · search quality is unchanged.
+**Must prove:** benchmark before and after using `evaluation/run_benchmark.py`, plus latency on 2 tenants × 5k chunks, posted as a comment · automated test: new tenant → upload → searchable with no manual step · live container evidence after migrating ADS data.
+> ⚠️ **Two blockers.** (1) `evaluation/run_benchmark.py` does not exist in the repo,
+> so "search quality is unchanged" is unverifiable. (2) The ADS migration AC
+> conflicts with the recorded decision to ignore ADS migration; the equivalent AC
+> was waived on VQ-101, and ADS data appears nowhere in the repo. **Ask whether
+> this AC is also waived.**
 
-**Pending:** Gate 5 (code review), Gate 6 (re-run under `vaultiq_app`), Gate 7 (demo)
+#### VQ-301 — User management for Client Admins [BE][W3][P0][5pt]
+**Branch:** not started · **Depends on:** VQ-106, VQ-107
+**Objective:** Client Admins onboard and manage their own employees without our help and without internet.
+**AC:** invite one user via a one-time, time-limited invite shown on screen, optionally sent via an internal mail relay if configured · import many users from CSV where the whole file is validated first and either all rows import or none, with a row-by-row report · deactivate (stops all their sessions immediately) and reactivate · password reset via a one-time code the admin hands over · change a user's role between Employee and Client Admin only after the admin re-confirms their own identity, reusing HeXta's step-up pattern · all of it tenant-scoped and audited.
+**Must prove:** all-or-nothing CSV · deactivation ends sessions · role change requires step-up · cross-tenant attempts refused · live container: full lifecycle including a bad CSV.
+**Note:** VQ-107 already delivered the invite-accept flow for the *first* client admin. 301 generalises it to arbitrary users and adds CSV, deactivation, reset and step-up.
+
+#### VQ-302 — Client Admin dashboard data [BE][W3][P0][5pt]
+**Branch:** not started · **Depends on:** VQ-202, VQ-301
+**Objective:** Provide the numbers and lists behind the Client Admin dashboard, strictly for that admin's own organisation.
+**AC:** overview figures — questions per day for the last 30 days, active users, split of answered/partial/not-found, average confidence · lists with server-side paging, filtering and search: documents with state and processing status, users, audit entries, feedback · knowledge gaps: most frequent not-found and low-confidence questions grouped by similarity, with counts and last-asked · exports of each list as CSV, capped, streamed, safe to open in a spreadsheet, and audited · **every figure and list restricted to the requesting tenant, even aggregate counts**.
+**Must prove:** every dashboard operation covered by the isolation suite · aggregates exclude other tenants · CSV cells cannot execute formulas · live container: dashboard figures for tenant A compared with direct database counts.
+> ⚠️ Depends on VQ-305 for feedback and knowledge gaps, and on the Q&A engine for
+> question history, confidence and not-found data. The CSV-export AC (formula
+> injection) is a genuine XSS-class requirement — cells starting `=`, `+`, `-`,
+> `@` must be neutralised.
+
+#### VQ-304 — Tenant settings storage and validation [BE][W3][P1][2pt]
+**Branch:** not started · **Depends on:** VQ-107
+**Objective:** Each client can adjust VaultIQ within limits we control, and those adjustments are stored safely.
+**AC:** Client Admin can set display name, logo (validated image, size-limited, stored in the tenant's own storage), accent colour, custom 'not found' message (plain text, length-limited), allowed upload formats, and conversation retention days · storage quota is visible to the Client Admin but only Super Admin can change it · every setting validated, bad value rejected with a clear reason · changes audited · a public lookup by organisation code returns only name, logo and colour, **and behaves identically for a code that does not exist** (no enumeration).
+**Must prove:** validation · the custom message can never render as markup · a malicious image is rejected · live container evidence.
+> Note: "behaves identically for a code that does not exist" is the same
+> no-enumeration requirement as VQ-105 AC2, including timing.
+
+#### VQ-305 — Answer feedback capture [BE][W3][P1][2pt]
+**Branch:** not started · **Depends on:** VQ-101
+**Objective:** Employees can tell their Client Admin which answers were wrong or unhelpful.
+**AC:** thumbs up or down plus an optional short comment on any answer, one vote per user per answer and changeable · stored with the tenant, the user, the answer, and which documents were used · available to the Client Admin dashboard (VQ-302) and, for not-found answers with negative feedback, to knowledge gaps.
+**Must prove:** one vote per user per answer · tenant-scoped listing · comment length limit · live container evidence.
+> ⚠️ Blocked in practice: "the answer" and "which documents were used" do not
+> exist yet — they come from the missing Q&A engine story.
+
+### Migration collisions — settle the numbering before writing more branches
+VQ-201, VQ-202 and VQ-203 each add a migration against the same parent revision
+(`007`/`008`); PR #10 is already `CONFLICTING`. VQ-202 adds `cached_answers` and
+`document_versions`, VQ-204 changes the index layout, VQ-301 adds user-management
+tables, VQ-302 adds aggregates, VQ-304 adds `tenant_settings`, VQ-305 adds
+`feedback`. That is five more migrations colliding on the same parent. Deciding
+the revision-numbering scheme once now is far cheaper than renumbering nine
+branches at merge time. **No merging until all nine are complete; merge order to
+be decided then.**
 
 ---
 
