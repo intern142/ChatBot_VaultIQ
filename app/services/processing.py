@@ -224,9 +224,30 @@ async def store_chunks(
 
     await set_tenant_context(db, str(tenant_id))
 
+    # Serialise the rewrite for this one document. MAX_CONCURRENT_PER_TENANT
+    # allows several jobs for one tenant at once, so two jobs for the *same*
+    # document can overlap - which is what happens when a client re-uploads
+    # while the previous version is still being indexed. Both would then run
+    # DELETE-then-INSERT, and the second DELETE cannot see the first's newly
+    # inserted rows because its statement snapshot predates them, so it
+    # re-inserts the same chunk_index values and trips
+    # uq_document_chunks_document_index, leaving the index holding a mix of
+    # two versions.
+    #
+    # Taken here rather than in process_document because this is the
+    # transaction that does the delete and the insert: process_document commits
+    # several times before reaching it, and a transaction-scoped lock would be
+    # released by each of those commits. Held until the commit below, then
+    # released automatically - it cannot leak if the job dies. Scoped to the
+    # document, not the tenant, so parallelism between documents is unaffected.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:doc_id, 0))"),
+        {"doc_id": str(document_id)},
+    )
+
     # Rewrite in one statement so a retried job cannot leave a half-updated
     # chunk set behind: the old rows are removed and the new ones inserted
-    # inside the caller's transaction.
+    # inside this transaction, under the lock taken above.
     await db.execute(
         text("DELETE FROM document_chunks WHERE document_id = :document_id"),
         {"document_id": document_id},

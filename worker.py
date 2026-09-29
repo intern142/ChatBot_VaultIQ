@@ -36,20 +36,90 @@ def get_tenant_semaphore(tenant_id: uuid.UUID) -> asyncio.Semaphore:
     return _tenant_semaphores[tenant_id]
 
 
-async def dequeue_job(db: AsyncSession) -> DocumentJob | None:
-    """Dequeue the next available job using fair scheduling.
+# Rotating cursor for round-robin dequeue. Module level, in-process only:
+# with multiple worker processes each keeps its own cursor, which still gives
+# per-process fairness and the SKIP LOCKED claim below keeps them from
+# colliding on the same row.
+_tenant_cursor = 0
 
-    Uses FOR UPDATE SKIP LOCKED to avoid conflicts between workers.
-    Returns the next queued job or None if queue is empty.
+
+async def list_active_tenants(db: AsyncSession) -> list[uuid.UUID]:
+    """List the ids of tenants with work the worker may consider.
+
+    This is the only query the worker runs without a tenant context. It is
+    safe by construction rather than by policy: the `tenants` table is
+    platform metadata (id, short_code, name, status) granted to vaultiq_app by
+    migration 005, it holds no customer content, and it is the same list a
+    Super Admin already sees. No row from `documents`, `document_chunks` or
+    any content table is touched here.
+
+    The alternative - a dedicated worker role that can read every job row
+    across every tenant - would widen what a database identity can see in
+    order to fix a scheduling problem. This does not.
     """
+    from app.models.tenant import Tenant
+
+    result = await db.execute(
+        select(Tenant.id)
+        .where(Tenant.status.in_(("active", "suspended")))
+        .order_by(Tenant.id.asc())
+    )
+    return [row[0] for row in result.all()]
+
+
+async def dequeue_job(db: AsyncSession, tenant_id: uuid.UUID) -> DocumentJob | None:
+    """Dequeue the oldest queued job for one tenant.
+
+    FOR UPDATE SKIP LOCKED so two workers cannot claim the same row.
+    Returns None if this tenant has nothing queued.
+    """
+    await set_tenant_context(db, str(tenant_id))
     result = await db.execute(
         select(DocumentJob)
-        .where(DocumentJob.status == "queued")
+        .where(
+            DocumentJob.status == "queued",
+            DocumentJob.tenant_id == tenant_id,
+        )
         .order_by(DocumentJob.created_at.asc())
         .with_for_update(skip_locked=True)
         .limit(1)
     )
-    return result.scalar_one_or_none()
+    job = result.scalar_one_or_none()
+    if job is None:
+        await db.rollback()
+    return job
+
+
+async def dequeue_any_job(db: AsyncSession) -> DocumentJob | None:
+    """Claim one queued job, round-robin across tenants.
+
+    A no-tenant session sees zero rows of document_jobs, so a bare
+    `WHERE status='queued'` SELECT always returns nothing and the worker
+    spins on a permanently empty queue. Instead of widening a database role to
+    fix that, walk the tenant list and dequeue inside each tenant's own
+    context - the same path the HTTP layer uses, already proven by the RLS
+    tests.
+
+    The cursor advances on every call so a tenant with a deep queue cannot
+    starve a tenant with a single job, which is AC3.
+    """
+    global _tenant_cursor
+
+    tenant_ids = await list_active_tenants(db)
+    if not tenant_ids:
+        return None
+
+    start = _tenant_cursor % len(tenant_ids)
+    for offset in range(len(tenant_ids)):
+        tenant_id = tenant_ids[(start + offset) % len(tenant_ids)]
+        job = await dequeue_job(db, tenant_id)
+        if job is not None:
+            _tenant_cursor = (start + offset + 1) % len(tenant_ids)
+            return job
+
+    # Every tenant was empty; the tenant-list query is still open.
+    await db.rollback()
+    return None
 
 
 async def process_job(db: AsyncSession, job: DocumentJob) -> None:
@@ -99,16 +169,49 @@ async def worker_loop(engine) -> None:
 
     print(f"Worker started (concurrency={WORKER_CONCURRENCY}, max_per_tenant={MAX_CONCURRENT_PER_TENANT})")
 
+    # WORKER_CONCURRENCY was previously read from the environment and never
+    # used: the loop below processed one job at a time. Per-tenant fairness
+    # comes from the semaphores in process_job and the round-robin cursor in
+    # dequeue_any_job, neither of which needs a global cap, but the pool still
+    # needs one so a single process cannot exhaust its own connections.
+    inflight: set[asyncio.Task] = set()
+
+    async def drain() -> DocumentJob | None:
+        async with session_factory() as db:
+            job = await dequeue_any_job(db)
+            if job is None:
+                return None
+            await process_job(db, job)
+            return job
+
     while True:
         try:
-            async with session_factory() as db:
-                # Dequeue next job
-                job = await dequeue_job(db)
-                if job:
-                    await process_job(db, job)
+            # Top up towards the cap. Each task opens its own session, so
+            # concurrent drains do not share a transaction.
+            while len(inflight) < WORKER_CONCURRENCY:
+                inflight.add(asyncio.create_task(drain()))
+
+            done, inflight = await asyncio.wait(
+                inflight, timeout=0.5, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if not done:
+                continue
+
+            for task in done:
+                # Retrieve the result or exception either way. An exception left
+                # unretrieved is logged as "Task exception was never retrieved"
+                # and the loop carries on silently, which is how a queue that
+                # never drains can look like a worker that is merely idle.
+                exc = task.exception()
+                if exc is not None:
+                    print(f"Worker error: {exc}")
                 else:
-                    # No jobs - short sleep
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0)
+
+            if not inflight and not any(not t.done() for t in done):
+                # Nothing queued anywhere; back off instead of spinning.
+                await asyncio.sleep(1)
         except Exception as e:
             print(f"Worker error: {e}")
             await asyncio.sleep(5)

@@ -108,15 +108,27 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: **`vq-203`** (not merged, no PR yet)
-- Current task: **VQ-203** — Per-tenant document processing queue. Gates 1-4 done;
-  **Gate 6 blocked** (see Blockers). Self-review: `VQ203_SELF_REVIEW.md`.
-- Test suite on this branch: **152 passed** (`python -m pytest tests/ -q`, 239s) = 137
-  existing + 15 new. Verified green 2026-09-29.
+- Current branch: **`vq-203`** (not merged, PR #13 open)
+- Current task: **VQ-203** — Per-tenant document processing queue. Gates 1-4 and 6
+  done; Gates 5 and 7 pending. Self-review: `VQ203_SELF_REVIEW.md`.
+- Test suite on this branch: **158 passed** (`python -m pytest tests/ -q`, 255s).
 - Test suite on main: 137 passed. Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103,
   104, 105, 106, 107, 110.
 - **Unmerged, all three open:** VQ-201 (PR #10, `CONFLICTING`), VQ-202 (PR #11,
-  `MERGEABLE`), VQ-203 (this branch). VQ-203 depends on both.
+  `MERGEABLE`), VQ-203 (PR #13). VQ-203 depends on both.
+
+## Worker queue design (resolved on `vq-203`)
+`dequeue_job` originally selected `FROM document_jobs WHERE status='queued'` with no
+tenant context, and the RLS policy hides every row from a no-tenant session, so the
+worker saw a permanently empty queue.
+
+Resolved by **round-robin, with no privilege escalation**: migration 005 already grants
+`SELECT` on `tenants` to `vaultiq_app`. That table is platform metadata (id, short code,
+name, status) with no customer content, and is the same list a Super Admin already sees.
+`list_active_tenants` is the only query the worker runs without a context; every claim
+goes through the same tenant-scoped path the HTTP layer uses. Rejected alternatives were
+a worker role that can read all tenants' job rows, and a `SECURITY DEFINER` claim
+function — both widen what a database identity can see to fix a scheduling problem.
 
 ## Known Defects
 > Defects 1 and 2 below are **fixed on `vq-202-approval-versioning`** (migration
@@ -148,21 +160,16 @@ We sell this to many companies at once from one installation. Each company is a 
      `process_document`, `worker.process_job`, and both document routes.
 
 ## Blockers
-- **VQ-203 Gate 6 is blocked: the worker cannot see any job.** `dequeue_job` selects
-  `FROM document_jobs WHERE status='queued'` with no tenant context, and the policy
-  hides every row from a no-tenant session. Verified directly: with one job present,
-  `vaultiq_app` saw **0 rows** with no context and **1 row** with context. The worker
-  would spin forever on a permanently empty queue.
-  **This needs a lead decision, not a code fix** — a separate worker DB identity, or
-  round-robin across tenants with the tenant list read through a privileged path. Both
-  change the threat model.
 - **Embeddings cannot run offline.** `embed_chunks` imports `fastembed`, which is not in
   `requirements.txt` and downloads a model on first use. Rule 2 forbids runtime
-  downloads. The end-to-end test stubs that one function; the rest of the pipeline is
-  real.
+  downloads. Needs the dependency pinned and the model bundled at build time. Every test
+  and live run stubs this one function; the rest of the pipeline is real.
+- **The worker is not in the Dockerfile.** AC1's "separate from the live service" is
+  currently a property of the code, not of the deployed artifact.
 - VQ-201 / VQ-202 / VQ-203 all add a migration against the same parent (`007`/`008`).
   They cannot merge without renumbering or a merge revision. PR #10 is already
   `CONFLICTING`.
+
 
 
 ## VQ-110 — Cross-tenant isolation test suite v1 (Merged to main)

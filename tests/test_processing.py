@@ -484,6 +484,94 @@ class TestClientAdminVisibility:
         assert doc_a_id not in resp.text
 
 
+class TestConcurrentIndexingOfOneDocument:
+    """Two jobs for the same document may overlap. The index must survive it.
+
+    MAX_CONCURRENT_PER_TENANT allows several jobs for one tenant at once, so a
+    re-upload landing while the previous version is still being indexed puts two
+    jobs on the same document. Both run DELETE-then-INSERT on document_chunks;
+    the second DELETE cannot see the first's newly inserted rows because its
+    statement snapshot predates them, so it re-inserts the same chunk_index
+    values and trips uq_document_chunks_document_index.
+
+    Found by running the real worker process, not by reading the code: the
+    suite only ever processed one job at a time.
+    """
+
+    @pytest.mark.asyncio
+    async def test_two_jobs_for_one_document_do_not_corrupt_the_index(
+        self, app_session, app_db_engine, tenant_a
+    ):
+        import io
+        from sqlalchemy import text
+        from unittest.mock import patch
+        from app.models.document import Document, DocumentJob
+        from app.database import set_tenant_context
+        from app.services.storage import save_uploaded_file
+        from app.services.processing import process_document
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        tenant_id = tenant_a["id"]
+        doc_id = uuid.uuid4()
+        body = b"Refund window is thirty days from receipt. " * 60
+        path = save_uploaded_file(io.BytesIO(body), tenant_id, doc_id, "race.txt")
+
+        async with app_session as db:
+            await set_tenant_context(db, str(tenant_id))
+            db.add(Document(
+                id=doc_id, tenant_id=tenant_id,
+                original_filename="race.txt", stored_filename="race.txt",
+                mime_type="text/plain", size_bytes=path.stat().st_size,
+                uploaded_by=tenant_a["client_admin"]["id"],
+            ))
+            job_ids = []
+            for version in range(1, 9):
+                # Re-established each iteration: the previous commit ended the
+                # transaction the previous set_config belonged to.
+                await set_tenant_context(db, str(tenant_id))
+                job = DocumentJob(
+                    tenant_id=tenant_id, document_id=doc_id,
+                    payload={"action": "index", "version": version},
+                )
+                db.add(job)
+                await db.commit()
+                job_ids.append(job.id)
+
+        # Separate sessions, as the worker's concurrent drains do.
+        sf = async_sessionmaker(app_db_engine, class_=AsyncSession, expire_on_commit=False)
+
+        async def run(job_id):
+            async with sf() as db:
+                await set_tenant_context(db, str(tenant_id))
+                await process_document(db, tenant_id, doc_id, job_id)
+
+        with patch("app.services.processing.embed_chunks",
+                   side_effect=lambda c: [[0.0] * 384 for _ in c]):
+            results = await asyncio.gather(
+                *(run(j) for j in job_ids), return_exceptions=True
+            )
+
+        # No unique violation, and neither job may leave a broken document.
+        for r in results:
+            assert not isinstance(r, Exception), f"concurrent indexing raised {r!r}"
+
+        async with app_session as db:
+            await set_tenant_context(db, str(tenant_id))
+            chunks = (await db.execute(
+                text("SELECT chunk_index, count(*) FROM document_chunks "
+                     "WHERE document_id = :d GROUP BY chunk_index "
+                     "HAVING count(*) > 1"),
+                {"d": doc_id},
+            )).all()
+            assert not chunks, f"duplicate chunk_index rows: {chunks}"
+
+            status = (await db.execute(
+                text("SELECT processing_status FROM documents WHERE id = :d"),
+                {"d": doc_id},
+            )).scalar()
+            assert status == "ready"
+
+
 class TestPipelineRunsEndToEnd:
     """The whole pipeline, against the real database and real storage.
 
