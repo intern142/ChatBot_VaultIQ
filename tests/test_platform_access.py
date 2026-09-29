@@ -398,3 +398,74 @@ class TestAppRoleCannotBypass:
             "invites",
             "audit_logs",
         }
+
+
+class TestPlatformTenantWrites:
+    """vaultiq_app needs write access to tenants for the platform operations.
+
+    Migration 005 granted SELECT only. That was harmless while Super Admin
+    could not authenticate, so no platform write path was reachable and the
+    missing grant went unnoticed. Once the policy fix above made those paths
+    reachable, every one of them failed with InsufficientPrivilegeError:
+
+        POST   /admin/tenants                  -> INSERT
+        PATCH  /admin/tenants/{id}/suspend     -> UPDATE
+        PATCH  /admin/tenants/{id}/reactivate  -> UPDATE
+        approve a document version             -> UPDATE knowledge_base_version
+
+    These tests pin the grants so a future migration that reverts 005's grant
+    cannot silently reintroduce the failure.
+    """
+
+    @pytest.mark.asyncio
+    async def test_app_role_may_insert_and_update_tenants(self, app_session):
+        result = await app_session.execute(
+            text("""
+                SELECT privilege_type FROM information_schema.role_table_grants
+                WHERE grantee = 'vaultiq_app' AND table_name = 'tenants'
+            """)
+        )
+        assert {r[0] for r in result} == {"SELECT", "INSERT", "UPDATE"}
+
+    @pytest.mark.asyncio
+    async def test_app_role_may_not_delete_tenants(self, app_session):
+        """Offboarding is VQ-302; purge must be granted deliberately, later."""
+        result = await app_session.execute(
+            text("""
+                SELECT privilege_type FROM information_schema.role_table_grants
+                WHERE grantee = 'vaultiq_app' AND table_name = 'tenants'
+                  AND privilege_type = 'DELETE'
+            """)
+        )
+        assert result.one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_platform_write_path_reaches_the_table(self, app_session, platform_user_id, tenant_a):
+        """The grant is real, not just catalog metadata: a write must succeed.
+
+        Uses UPDATE rather than INSERT to stay inside this test's fixtures. The
+        assertion is that the app role is not stopped by a privilege error; the
+        tenants table is not RLS-scoped, so there is no tenant context to set.
+        """
+        result = await app_session.execute(
+            text("UPDATE tenants SET storage_quota_mb = storage_quota_mb WHERE id = :tid"),
+            {"tid": tenant_a["id"]},
+        )
+        assert result.rowcount == 1
+
+    @pytest.mark.asyncio
+    async def test_tenant_policy_does_not_apply_to_tenants(self, app_session):
+        """tenants holds no tenant_id, so it is outside the tenant policies.
+
+        Worth stating explicitly because it is the reason the grant above is
+        not a cross-tenant hole: a tenant user cannot read the tenants table
+        through RLS, so seeing the registry grants no access to any tenant's
+        documents, users or answers, which are the tables that are guarded.
+        """
+        result = await app_session.execute(
+            text("""
+                SELECT count(*) FROM pg_policies
+                WHERE tablename = 'tenants'
+            """)
+        )
+        assert result.scalar() == 0

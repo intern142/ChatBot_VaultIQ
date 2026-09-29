@@ -15,6 +15,10 @@ identity - platform rows were unreachable. Reproduced before this migration:
 Super Admin is the only role that can create a tenant, so this blocked tenant
 lifecycle, VQ-201 Gate 6 and VQ-202 Gate 3.
 
+Repairing this exposed a second, independent defect underneath it: vaultiq_app
+held GRANT SELECT only on the tenants table, so every platform write failed with
+InsufficientPrivilegeError. Both are fixed here - see PLATFORM_TENANT_GRANTS.
+
 The fix is a second, PERMISSIVE policy per table. Postgres ORs permissive
 policies together, so a row is visible when it satisfies ANY of them. The two
 policies here are disjoint: the tenant policy requires tenant_id to equal the
@@ -70,6 +74,33 @@ depends_on: Union[str, Sequence[str], None] = None
 # this policy.
 SCOPED_TABLES = ("users", "sessions", "documents", "invites", "audit_logs")
 
+# tenants had GRANT SELECT only, added by migration 005 so that the tenant list
+# endpoint could read across every tenant. That was sufficient while the app
+# could not authenticate a Super Admin at all: no platform write path was
+# reachable, so the missing INSERT/UPDATE went unnoticed.
+#
+# Repairing the policies above makes those write paths reachable, and they
+# immediately fail. Reproduced before this grant:
+#
+#     POST /admin/tenants            -> InsufficientPrivilegeError on INSERT
+#     PATCH /admin/tenants/{id}/suspend -> same, on UPDATE
+#     approve a document version     -> same, on UPDATE knowledge_base_version
+#
+# Every write to tenants in the whole application is a platform operation:
+# create (VQ-107), suspend, reactivate, and the knowledge_base_version bump on
+# approve (VQ-202 AC5). Tenant users never write to this table. So the grant is
+# still narrow - it is not a hole in the tenant boundary. Row visibility across
+# tenants remains a separate question, answered by RLS, and RLS does not apply
+# to a table whose tenant_id is its own id: tenants is the tenant registry
+# itself, and holding it does not let a caller see another tenant's documents,
+# users or answers, which are guarded by the policies above.
+#
+# DELETE is deliberately not granted. No endpoint deletes a tenant; offboarding
+# (purge) is VQ-302 and will grant it then, deliberately, with its own tests.
+PLATFORM_TENANT_GRANTS = """
+GRANT SELECT, INSERT, UPDATE ON tenants TO vaultiq_app
+"""
+
 # The platform context is established by clearing app.current_tenant to ''. That
 # breaks the existing tenant_isolation policies, which cast the setting straight
 # to uuid:
@@ -120,10 +151,17 @@ def upgrade() -> None:
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
         op.execute(TENANT_POLICY.format(table=table))
     for table, sql in POLICIES.items():
+        # Idempotent: DROP IF EXISTS first. Re-running this migration against a
+        # database that already has the policies otherwise fails with
+        # DuplicateObject and aborts the transaction, which is how a re-run
+        # leaves the version table pointing at a half-applied migration.
+        op.execute(f"DROP POLICY IF EXISTS platform_account_access ON {table}")
         op.execute(sql)
+    op.execute(PLATFORM_TENANT_GRANTS)
 
 
 def downgrade() -> None:
+    op.execute("REVOKE INSERT, UPDATE ON tenants FROM vaultiq_app")
     for table in POLICIES:
         op.execute(f"DROP POLICY IF EXISTS platform_account_access ON {table}")
     for table in SCOPED_TABLES:
