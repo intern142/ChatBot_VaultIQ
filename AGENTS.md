@@ -108,29 +108,62 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
-- Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
-- Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
+- Current branch: **`vq-203`** (not merged, no PR yet)
+- Current task: **VQ-203** — Per-tenant document processing queue. Gates 1-4 done;
+  **Gate 6 blocked** (see Blockers). Self-review: `VQ203_SELF_REVIEW.md`.
+- Test suite on this branch: **152 passed** (`python -m pytest tests/ -q`, 239s) = 137
+  existing + 15 new. Verified green 2026-09-29.
+- Test suite on main: 137 passed. Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103,
+  104, 105, 106, 107, 110.
+- **Unmerged, all three open:** VQ-201 (PR #10, `CONFLICTING`), VQ-202 (PR #11,
+  `MERGEABLE`), VQ-203 (this branch). VQ-203 depends on both.
 
-## Known Defects (must be fixed before VQ-202)
-1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
-   RLS policy is inert during test and CI runs. VQ-102's claim that "the database itself
-   refuses cross-tenant reads" is therefore only proven by the handful of tests that use
-   the `app_db_session` / `app_db_conn` fixtures — never through the HTTP endpoints.
+## Known Defects
+> Defects 1 and 2 below are **fixed on `vq-202-approval-versioning`** (migration
+> `008_platform_access_superadmin`, and conftest/CI switched to `vaultiq_app`).
+> They are **not on main** and **not on `vq-203`**, which branched from main.
+> VQ-203 re-fixes the `documents` policy itself; see VQ203_SELF_REVIEW.md.
+
+1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.**
+   Every RLS policy is inert during test and CI runs. Only the tests using the
+   `app_db_session` / `app_db_conn` / `app_session` fixtures actually exercise RLS.
 2. **Super Admin auth is broken under the real production identity (`vaultiq_app`).**
-   The policies on `users` and `sessions` are bare
-   `tenant_id = current_setting('app.current_tenant', true)::uuid` with no branch for
-   `tenant_id IS NULL`, but VQ-101 AC3 requires platform accounts to have no tenant.
-   Consequences, reproduced against `vaultiq_app`:
-   - `POST /auth/login` with `organisation_code=SUPER` → **401** (the user row is invisible)
-   - inserting a super-admin session row → **InsufficientPrivilegeError** (RLS rejects the
-     INSERT, so it would be a 500 even if login succeeded)
-   Super Admin is the only role that can create a tenant, so this blocks VQ-202's live
-   evidence as well as VQ-201's.
+   The policies on `users` and `sessions` have no branch for `tenant_id IS NULL`,
+   but VQ-101 AC3 requires platform accounts to have no tenant. `POST /auth/login`
+   with `organisation_code=SUPER` returns 401, and inserting a super-admin session
+   row is rejected outright.
+3. **The `documents` RLS policy needs `NULLIF` as well as `missing_ok`.** Fixed on
+   `vq-203`. This is recorded separately because the VQ-202 fix is incomplete in a
+   way that is easy to repeat:
+   - Without `missing_ok`, Postgres raises `unrecognized configuration parameter`.
+   - With `missing_ok` but **without** `NULLIF`, it is still broken. A context that was
+     set and then committed reverts to the **empty string**, not NULL, and `''::uuid`
+     raises `invalid input syntax for type uuid: ""`. That is the normal state of a
+     pooled connection between transactions, so it is hit on any request whose first
+     statement reads `documents`.
+   - Correct form: `tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid`.
+   - **Consequence for `set_tenant_context`:** it is transaction-scoped, so *every*
+     write that follows a `commit()` re-establishes the context first, or it runs as a
+     no-tenant session and fails with `StaleDataError` / `ObjectDeletedError`. This bit
+     `process_document`, `worker.process_job`, and both document routes.
 
 ## Blockers
-- NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
+- **VQ-203 Gate 6 is blocked: the worker cannot see any job.** `dequeue_job` selects
+  `FROM document_jobs WHERE status='queued'` with no tenant context, and the policy
+  hides every row from a no-tenant session. Verified directly: with one job present,
+  `vaultiq_app` saw **0 rows** with no context and **1 row** with context. The worker
+  would spin forever on a permanently empty queue.
+  **This needs a lead decision, not a code fix** — a separate worker DB identity, or
+  round-robin across tenants with the tenant list read through a privileged path. Both
+  change the threat model.
+- **Embeddings cannot run offline.** `embed_chunks` imports `fastembed`, which is not in
+  `requirements.txt` and downloads a model on first use. Rule 2 forbids runtime
+  downloads. The end-to-end test stubs that one function; the rest of the pipeline is
+  real.
+- VQ-201 / VQ-202 / VQ-203 all add a migration against the same parent (`007`/`008`).
+  They cannot merge without renumbering or a merge revision. PR #10 is already
+  `CONFLICTING`.
+
 
 ## VQ-110 — Cross-tenant isolation test suite v1 (Merged to main)
 > **Verification status: Gates 1-4 code complete. Gates 3 and 6 are being re-run.**
