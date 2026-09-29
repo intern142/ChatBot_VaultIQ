@@ -215,6 +215,14 @@ async def create_invite(
     db: AsyncSession = Depends(get_db),
 ):
     """Create an invite for the first Client Admin of a tenant."""
+    # Set the tenant context before the reads below, not just before the
+    # inserts. This handler runs on a platform request, so it arrives with no
+    # tenant in context and the tenant_isolation policy on users hides every
+    # row. The "does this tenant already have a Client Admin" check would then
+    # read zero rows, find none, and allow a second invite to be issued - a
+    # silent check-then-act failure that only appears under the real app role.
+    await set_tenant_context(db, str(tenant_id))
+
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
 
@@ -276,6 +284,10 @@ async def create_invite(
     )
 
     await db.commit()
+    # Re-set tenant context before refresh; the commit ended the transaction
+    # and with it the SET LOCAL context. The invite has tenant_id so the
+    # tenant_isolation policy requires the context to be present.
+    await set_tenant_context(db, str(tenant_id))
     await db.refresh(invite)
     return invite
 
