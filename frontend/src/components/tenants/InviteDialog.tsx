@@ -9,7 +9,7 @@ interface InviteDialogProps {
   tenantName: string;
   open: boolean;
   onClose: () => void;
-  onSuccess: (tenantId: string, body: { email: string; expires_in_hours?: number }) => void;
+  onSuccess: () => void;
 }
 
 export function InviteDialog({ tenantId, tenantName, open, onClose, onSuccess }: InviteDialogProps) {
@@ -68,10 +68,7 @@ export function InviteDialog({ tenantId, tenantName, open, onClose, onSuccess }:
   };
 
   const handleSuccess = () => {
-    onSuccess(tenantId, {
-      email: form.email.trim(),
-      expires_in_hours: parseInt(form.expires_in_hours, 10) || undefined,
-    });
+    onSuccess();
   };
 
   if (!open) return null;
@@ -116,7 +113,7 @@ export function InviteDialog({ tenantId, tenantName, open, onClose, onSuccess }:
             </div>
             <div style={styles.footer}>
               <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-              <Button type="submit" onClick={(e) => { e.preventDefault(); document.querySelector('form')?.dispatchEvent(new Event('submit')); }} loading={loading} disabled={loading}>
+              <Button type="submit" loading={loading} disabled={loading}>
                 Create Invite
               </Button>
             </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listTenants, createTenant, suspendTenant, reactivateTenant, inviteTenantAdmin } from '../../api/admin';
+import { listTenants, createTenant, suspendTenant, reactivateTenant } from '../../api/admin';
 import { TenantTable } from '../../components/tenants/TenantTable';
 import { CreateTenantDialog } from '../../components/tenants/CreateTenantDialog';
 import { InviteDialog } from '../../components/tenants/InviteDialog';
@@ -61,13 +61,9 @@ export default function TenantsPage() {
     }
   };
 
-  const handleInvite = async (tenantId: string, body: { email: string; expires_in_hours?: number }) => {
-    try {
-      await inviteTenantAdmin(tenantId, body);
-      setInviteOpen(null);
-    } catch (err: any) {
-      setError(err.message);
-    }
+  const handleInviteComplete = () => {
+    setInviteOpen(null);
+    fetchTenants();
   };
 
   if (loading) {
@@ -118,7 +114,7 @@ export default function TenantsPage() {
           tenantName={inviteOpen.tenantName}
           open
           onClose={() => setInviteOpen(null)}
-          onSuccess={handleInvite}
+          onSuccess={handleInviteComplete}
         />
       )}
     </div>

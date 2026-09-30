@@ -1618,3 +1618,63 @@ Committed `172c484`: complete React + TypeScript + Vite frontend scaffold on `FE
 - Super Admin screens: built, tested against `vaultiq` superuser, marked "requires 007"
 
 **Known gaps:** No search/Q&A endpoint, no user management, super-admin login 401 under `vaultiq_app` (requires migration 007).
+
+---
+
+### 2026-09-30 — invite button fix (frontend only, 2 files, +8 −15)
+
+Reported as "inviting the client admin is not happening". Two separate defects,
+both in the frontend. **No backend file was touched.**
+
+**Defect 1 — mis-wired submit button (the reason nothing happened)**
+
+`InviteDialog.tsx` had a `Button type="submit"` sitting inside
+`<form onSubmit={handleSubmit}>` — which was already correct — but it also
+carried a hand-rolled `onClick` that destroyed both submit paths:
+
+```tsx
+onClick={(e) => {
+  e.preventDefault();                                  // cancels the native submit
+  document.querySelector('form')                      // wrong form: first on the page
+    ?.dispatchEvent(new Event('submit'));             // bubbles:false -> React never sees it
+}}
+```
+
+`new Event('submit')` defaults to `bubbles: false`, so it never reaches React
+18's root-container listener and `onSubmit` never fires. Net effect: clicking did
+nothing, while pressing **Enter** worked — which made the dialog look half-alive.
+
+Fix: deleted the `onClick` entirely. The native submit was already correct.
+
+**Defect 2 — duplicate invite request on "Done"**
+
+`handleSubmit` already posted the invite (it needs the returned `code` to render),
+and then "Done" called `onSuccess` → `TenantsPage.handleInvite` → posted the
+*same* invite again, which the backend rejected with
+`400 Active invite already exists for this email`. A successful invite ended in a
+spurious error.
+
+Fix: the dialog keeps ownership of the request (it needs `code`); the parent
+stops posting. `onSuccess` narrowed to `() => void`,
+`handleInvite` → `handleInviteComplete` (close + `fetchTenants()` only), and the
+unused `inviteTenantAdmin` import dropped. Now exactly one
+`POST /admin/tenants/{id}/invite` per invite.
+
+**Verification:** `tsc --noEmit` clean, `npm run build` succeeded, `api/` layer
+untouched, zero backend files in the diff.
+
+**Not a bug — a real backend restriction:** `admin.py` permits **one**
+`client_admin` per tenant and returns `400 "Tenant already has a Client Admin"`.
+`TENANT1` already has one (created during integration testing), so inviting on
+`TENANT1` will always fail; `TENANT2` has none. The frontend **cannot** pre-detect
+this, because `GET /admin/tenants` returns no "has_client_admin" field — adding
+one would be a backend change. Fixing defect 1 is what makes the message visible
+at all, since the dialog already rendered `error`.
+
+**Still open (deliberately not done):**
+- `if (!open) return null` precedes the `useState` calls in both
+  `InviteDialog.tsx:16` and `CreateTenantDialog.tsx:14` — a rules-of-hooks
+  violation. Latent, currently masked because the parent only mounts these when
+  open. Left alone to keep this change scoped to the invite button.
+- `TENANT1`'s client_admin would need deleting (a DB row, not code) to demo a
+  clean invite → accept cycle.
