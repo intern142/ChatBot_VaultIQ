@@ -615,6 +615,208 @@ lockout is not distinguishable in the UI.
 
 ---
 
+# PHASE 4 — FRONTEND API LAYER DESIGN
+
+**Goal:** Centralised, typed API client. No raw `fetch` in components. Single
+source for base URL, auth header, error normalisation, and the refresh-on-401
+retry loop. Uses native `fetch` (no extra library — the project has no frontend
+HTTP abstraction yet).
+
+## Design constraints from Phase 1-3
+
+- Base URL: `VITE_API_BASE_URL` (default `http://127.0.0.1:8000`)
+- Auth: `Authorization: Bearer <token>` on every protected call
+- Token lives in `sessionStorage` (recommended — reload re-validates via
+  `POST /auth/refresh`; no refresh cookie exists)
+- Errors: `detail` is **string** for 400/401/403/404/409/413/415, **array** for 422.
+  Normalise both to `{message: string, status: number}`.
+- No whoami endpoint — `POST /auth/refresh` (no body) is the only way to
+  re-validate a stored token and re-obtain `role`/`tenant_id` after reload.
+- `refresh` has a latent 500 bug when two sessions exist — wrap in
+  try/catch, fall back to logout, never retry 500.
+- Multipart upload (`POST /documents`) — **do not set `Content-Type`**; let
+  browser generate the boundary.
+- Download (`GET /documents/{id}/download`) — fetch as blob, create object URL,
+  revoke after use; plain `<a href>` won't send auth header.
+- Preview returns two untyped shapes — discriminated union on
+  `preview === null` (not on mime type).
+
+## Proposed structure
+
+```
+src/api/
+├── client.ts           # core fetch wrapper + interceptors
+├── auth.ts             # login, refresh, logout
+├── documents.ts        # list, upload, preview, download, delete, usage
+├── admin.ts            # tenants, suspend, reactivate, invite, audit
+├── invite.ts           # accept (public)
+├── types.ts            # TS types mirroring the 19 OpenAPI schemas
+└── errors.ts           # ApiError class + normaliser
+```
+
+### 1. `client.ts` — the only place that calls `fetch`
+
+```ts
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+
+type RequestOptions = RequestInit & {
+  params?: Record<string, string | number | boolean>;
+  skipAuth?: boolean;          // for login, invite/accept, health
+  skipRefreshOn401?: boolean;  // for logout
+};
+
+function buildUrl(path: string, params?: RequestOptions['params']): string { ... }
+
+function getToken(): string | null { ... }  // from sessionStorage
+
+async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...opts.headers,
+  };
+  if (!opts.skipAuth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  // multipart: delete Content-Type so browser sets boundary
+  if (opts.body instanceof FormData) delete headers['Content-Type'];
+
+  const res = await fetch(buildUrl(path, opts.params), {
+    ...opts,
+    headers,
+    credentials: 'omit',  // no cookies
+  });
+
+  if (res.status === 401 && !opts.skipRefreshOn401) {
+    // single refresh attempt
+    const refreshed = await refreshToken();
+    if (refreshed) return request(path, opts); // retry once with new token
+    logout();  // clear storage, redirect to login
+    throw new ApiError('Session expired', 401);
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw normaliseError(res.status, data);
+  return data as T;
+}
+```
+
+Key behaviours:
+- **Refresh-once on 401** — not a loop. If refresh fails (500 or 401), logout.
+- **Multipart exception** — `FormData` bypasses `Content-Type` header.
+- **Error normaliser** (see `errors.ts`) handles `detail: string | array`.
+- **No credentials** — backend has no cookie auth.
+
+### 2. `errors.ts`
+
+```ts
+export class ApiError extends Error {
+  constructor(public readonly message: string, public readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function normaliseError(status: number, body: unknown): ApiError {
+  if (!body || typeof body !== 'object' || !('detail' in body)) {
+    return new ApiError('Unknown error', status);
+  }
+  const detail = (body as { detail: unknown }).detail;
+  const msg = Array.isArray(detail)
+    ? detail.map((d: any) => d?.msg ?? String(d)).join('; ')
+    : String(detail);
+  return new ApiError(msg, status);
+}
+```
+
+### 3. `types.ts` — 1:1 mirror of OpenAPI schemas
+
+All 19 schemas inlined here, with exact nullability from `anyOf`:
+- `TokenResponse.tenant_id: string | null` (required key, nullable)
+- `InviteResponse.used_at: string | null`
+- `AuditLogResponse.actor_user_id: string | null`
+- `storage_quota_mb: number | null` (several schemas)
+- `TenantCreate.short_code: string` (validated 2-20 `[A-Z0-9]` server-side)
+- `AuditLogResponse.actor_role: string` (NOT `UserRole` — can be `system`)
+- `PreviewResponse` discriminated union:
+  ```ts
+  type PreviewText = { document_id: string; filename: string; mime_type: `text/${string}`; preview: string; truncated: boolean; };
+  type PreviewOther = { document_id: string; filename: string; mime_type: string; size_bytes: number; preview: null; message: string; };
+  type PreviewResponse = PreviewText | PreviewOther;
+  ```
+
+### 4. Domain modules (thin wrappers around `request`)
+
+```ts
+// auth.ts
+export const login = (body: LoginRequest) => request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body), skipAuth: true });
+export const refresh = () => request<TokenResponse>('/auth/refresh', { method: 'POST', skipRefreshOn401: true });
+export const logout = () => request<MessageResponse>('/auth/logout', { method: 'POST', skipRefreshOn401: true });
+
+// documents.ts
+export const listDocuments = (page = 1, pageSize = 20) => request<DocumentListResponse>(`/documents`, { params: { page, page_size: pageSize } });
+export const uploadDocument = (file: File) => { const fd = new FormData(); fd.append('file', file); return request<DocumentResponse>('/documents', { method: 'POST', body: fd }); };
+export const previewDocument = (id: string) => request<PreviewResponse>(`/documents/${id}/preview`);
+export const downloadDocument = (id: string) => fetch(`/documents/${id}/download`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.blob());
+export const deleteDocument = (id: string) => request<void>(`/documents/${id}`, { method: 'DELETE' });
+export const getStorageUsage = () => request<StorageUsageResponse>('/documents/usage');
+
+// admin.ts
+export const listTenants = () => request<TenantResponse[]>('/admin/tenants');
+export const createTenant = (body: TenantCreate) => request<TenantResponse>('/admin/tenants', { method: 'POST', body: JSON.stringify(body) });
+export const suspendTenant = (id: string) => request<TenantResponse>(`/admin/tenants/${id}/suspend`, { method: 'PATCH' });
+export const reactivateTenant = (id: string) => request<TenantResponse>(`/admin/tenants/${id}/reactivate`, { method: 'PATCH' });
+export const inviteTenantAdmin = (id: string, body: InviteCreate) => request<InviteResponse>(`/admin/tenants/${id}/invite`, { method: 'POST', body: JSON.stringify(body) });
+export const getTenantAudit = (id: string) => request<AuditLogResponse[]>(`/admin/tenants/${id}/audit`);
+
+// invite.ts
+export const acceptInvite = (code: string, password: string) => request<InviteAcceptResponse>('/invite/accept', { method: 'POST', body: JSON.stringify({ code, password }), skipAuth: true });
+
+// health
+export const health = () => request<{ status: string }>('/health', { skipAuth: true });
+```
+
+### 5. Auth bootstrap (in `AuthContext`)
+
+On app mount:
+```ts
+const token = sessionStorage.getItem('token');
+if (token) {
+  const { role, tenant_id } = await refresh();  // re-validates, gives fresh role
+  setAuth({ token, role, tenantId: tenant_id });
+} else {
+  setAuth(null);
+}
+```
+
+There is **no whoami endpoint** — refresh is the only bootstrap.
+
+## What is deliberately NOT in this layer
+
+- `search.ts` — **no search endpoint exists** in the backend (confirmed by OpenAPI: 15 paths, 0 search). Do not create.
+- `conversations.ts`, `chat.ts`, `qa.ts` — no such routes.
+- `users.ts` — no user management endpoint. Only first admin via invite.
+- Separate `refreshToken` utility — it's one call inside `client.ts`, no abstraction needed.
+
+---
+
+### 2026-09-30 — PHASE 4 API layer designed (no files created)
+
+Design only. Based on the machine-generated OpenAPI contract (15 paths, 17 ops) and
+the hand-verified error/preview shapes. Uses native `fetch`, no extra library.
+Centralises base URL, auth header, error normalisation, multipart exception, and
+the single-refresh-on-401 retry. Mirrors all 19 OpenAPI schemas in `types.ts`
+with exact nullability. Organised by backend router: `auth`, `documents`,
+`admin`, `invite` — not by the user's example (`tenants`/`search` don't exist as
+independent routers; `/admin/tenants` lives in `admin.ts`, and `search` is absent).
+
+Pending decisions before implementation:
+1. Token storage: `sessionStorage` (recommended) vs `localStorage`.
+2. Whether to build operator screens now, given super-admin login 401s under
+   `vaultiq_app`.
+
+---
+
 # Working rules
 
 1. Work only on the frontend.
