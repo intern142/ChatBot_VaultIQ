@@ -817,6 +817,152 @@ Pending decisions before implementation:
 
 ---
 
+# PHASE 5 — IMPLEMENTATION ORDER (planned, not started)
+
+Each step maps to the Phase 4 API layer and the Phase 3 contract. No backend
+communication in UI components — flow is always:
+**Backend endpoint → API function → React hook/context → Page/component → UI state**.
+
+| # | Step | Backend endpoints | API functions | React layer | Key UI states |
+|---|---|---|---|---|---|
+| 1 | **Frontend foundation** | — | — | `vite.config.ts`, `tsconfig.json`, `package.json`, `src/main.tsx`, `src/App.tsx` | — |
+| 2 | **API client** | — | `client.ts`, `errors.ts`, `types.ts` | `src/api/` barrel export | — |
+| 3 | **Routing** | — | — | `src/routes/paths.ts`, `src/routes/index.tsx`, `src/routes/guards.tsx` (`RequireAuth`, `RequireRole`) | — |
+| 4 | **Authentication core** | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout` | `auth.login`, `auth.refresh`, `auth.logout` | `AuthContext` (token, role, tenantId, login, logout, bootstrap) | loading, error |
+| 5 | **Login page** | `POST /auth/login` | `auth.login` | `LoginPage` + `useLogin` hook | submitting, field errors, 401/403/422 handling |
+| 6 | **Session handling** | `POST /auth/refresh` | `auth.refresh` | `AuthContext` bootstrap + 401 interceptor in `client.ts` | refresh pending, refresh failed → logout |
+| 7 | **Protected routes** | — | — | `RequireAuth` wrapper on all non-public routes | redirect to `/login` |
+| 8 | **Logout** | `POST /auth/logout` | `auth.logout` | `AuthContext.logout` + header button | clearing state, redirect |
+| 9 | **App layout** | — | — | `AppShell`, `Sidebar`, `Header`, `RoleBadge` | responsive, role-aware nav |
+| 10 | **Role-based navigation** | — | — | `Sidebar` reads `role` from `AuthContext` | super_admin sees Operator nav; client_admin/employee sees Tenant nav |
+| 11 | **Super Admin screens** | `GET/POST /admin/tenants`, `PATCH /admin/tenants/{id}/suspend|reactivate`, `POST /admin/tenants/{id}/invite`, `GET /admin/tenants/{id}/audit` | `admin.listTenants`, `createTenant`, `suspendTenant`, `reactivateTenant`, `inviteTenantAdmin`, `getTenantAudit` | `OperatorTenantsPage`, `TenantDetailDialog`, `InviteDialog`, `AuditLogPage` | loading, creating, suspending, invite code copy, audit pagination (capped at 500) |
+| 12 | **Client Admin screens** | `POST/GET /documents`, `GET /documents/usage`, `GET /documents/{id}/preview|download`, `DELETE /documents/{id}` | `documents.listDocuments`, `uploadDocument`, `previewDocument`, `downloadDocument`, `deleteDocument`, `getStorageUsage` | `DocumentsPage`, `UploadDialog`, `PreviewPane`, `StorageUsageCard` | uploading (progress), preview (text vs binary), download (blob), delete confirm, usage stats |
+| 13 | **Document upload/list** | `POST /documents`, `GET /documents`, `DELETE /documents/{id}` | `documents.uploadDocument`, `listDocuments`, `deleteDocument` | `UploadDialog`, `DocumentTable` with pagination | drag-drop, 50MB/7-type validation, pagination (page_size max 100), empty state |
+| 14 | **Employee search** | — | — | — | **NOT IMPLEMENTED** — no search endpoint exists |
+| 15 | **Loading states** | — | — | `useAsync` hook + skeleton components | table skeletons, button spinners, page transitions |
+| 16 | **Empty states** | — | — | `EmptyState` component (icon + message + CTA) | no documents, no tenants, no audit logs |
+| 17 | **Error states** | — | — | `ApiError` boundary + inline `ErrorMessage` | 401→logout, 403→forbidden toast, 404→not found, 413/415→upload toast, 422→field errors, 500→generic |
+| 18 | **Permission/authorization states** | — | — | `RequireRole` guard + conditional rendering | hide Operator nav from tenant roles, hide delete from employee, disable actions per role matrix |
+
+## Flow diagram per feature
+
+```
+┌──────────────┐      ┌─────────────┐      ┌────────────────┐      ┌────────────┐      ┌──────────────┐
+│ Backend      │─────▶│ API         │─────▶│ Hook/Context   │─────▶│ Page/      │─────▶│ UI State     │
+│ endpoint     │      │ function    │      │ (if needed)    │      │ Component  │      │ handling     │
+└──────────────┘      └─────────────┘      └────────────────┘      └────────────┘      └──────────────┘
+```
+
+Example — Document Upload:
+1. `POST /documents` (multipart, 50MB, 7 types)
+2. `documents.uploadDocument(file: File)` → `request<DocumentResponse>('/documents', {method:'POST', body:FormData})`
+3. `useUploadDocument()` hook wraps mutation, returns `{mutate, loading, error}`
+4. `UploadDialog` component calls `mutate(file)`, shows progress, on success refreshes list
+5. `DocumentTable` refreshes via `useDocuments()` hook
+
+## Notes & Guardrails
+
+- **No `search.ts`** — backend has 0 search endpoints. Step 14 is a placeholder only.
+- **Employee "search" = document list + preview** — there is no separate search API.
+- **Super Admin login 401 under `vaultiq_app`** — Step 11 screens will be built but
+  verified against the superuser connection; note the defect in `AuthContext` bootstrap.
+- **Preview union type** — `usePreviewDocument` returns `PreviewText | PreviewOther`;
+  component branches on `preview === null`.
+- **Download** — `documents.downloadDocument(id)` returns `Promise<Blob>`; component
+  creates object URL, triggers download, revokes URL.
+- **Upload validation** — client-side file type/size check is UX only; server is
+  authoritative (413/415). Show toast with server `detail` string.
+- **Pagination** — `page_size` max 100 enforced by backend; UI caps selector at 100.
+- **Audit log** — capped at 500 entries, no pagination; UI must say "showing latest 500".
+- **Suspend side effect** — any 401 triggers `AuthContext` logout; test by suspending
+  own tenant in operator console.
+- **422 error shape** — `detail: Array<{loc, msg, type}>`; `errors.ts` normaliser
+  maps to field-level messages for forms.
+
+## File tree to be created
+
+```
+frontend/
+├── index.html
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── .env.example           # VITE_API_BASE_URL=http://127.0.0.1:8000
+├── public/
+│   └── favicon.ico
+└── src/
+    ├── main.tsx
+    ├── App.tsx
+    ├── config.ts
+    ├── api/
+    │   ├── client.ts
+    │   ├── errors.ts
+    │   ├── types.ts
+    │   ├── auth.ts
+    │   ├── documents.ts
+    │   ├── admin.ts
+    │   └── invite.ts
+    ├── context/
+    │   └── AuthContext.tsx
+    ├── routes/
+    │   ├── paths.ts
+    │   ├── guards.tsx
+    │   └── index.tsx
+    ├── pages/
+    │   ├── LoginPage.tsx
+    │   ├── NotFoundPage.tsx
+    │   ├── operator/
+    │   │   ├── TenantsPage.tsx
+    │   │   └── AuditLogPage.tsx
+    │   └── tenant/
+    │       ├── DocumentsPage.tsx
+    │       └── StoragePage.tsx
+    ├── components/
+    │   ├── layout/
+    │   │   ├── AppShell.tsx
+    │   │   ├── Sidebar.tsx
+    │   │   └── Header.tsx
+    │   ├── documents/
+    │   │   ├── DocumentTable.tsx
+    │   │   ├── UploadDialog.tsx
+    │   │   └── PreviewPane.tsx
+    │   ├── tenants/
+    │   │   ├── TenantTable.tsx
+    │   │   ├── CreateTenantDialog.tsx
+    │   │   └── InviteDialog.tsx
+    │   └── ui/
+    │       ├── Button.tsx
+    │       ├── Input.tsx
+    │       ├── Select.tsx
+    │       ├── Modal.tsx
+    │       ├── Table.tsx
+    │       ├── Alert.tsx
+    │       ├── Spinner.tsx
+    │       ├── EmptyState.tsx
+    │       └── ErrorMessage.tsx
+    ├── hooks/
+    │   ├── useAuth.ts
+    │   ├── useDocuments.ts
+    │   ├── useTenants.ts
+    │   ├── useAsync.ts
+    │   └── useUpload.ts
+    └── utils/
+        ├── format.ts
+        └── download.ts
+```
+
+---
+
+### 2026-09-30 — PHASE 5 implementation plan recorded (no files created)
+
+Plan only. 18-step incremental order mapping backend endpoints → API functions →
+hooks/context → pages/components → UI states. Every feature follows the same
+data-flow constraint. Step 14 (employee search) explicitly marked not
+implementable — no backend endpoint. Super Admin screens noted as buildable but
+unverifiable against `vaultiq_app` due to Known Defect #2.
+
+---
+
 # Working rules
 
 1. Work only on the frontend.
