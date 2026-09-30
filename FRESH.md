@@ -534,6 +534,73 @@ components and api modules; scattering them would create circular imports.
 
 ---
 
+# PHASE 3 — API CONTRACT
+
+**Full contract: [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md)**
+
+Machine-derived, not hand-written. FastAPI's own OpenAPI document was generated
+by importing the app on this baseline:
+
+```python
+from app.main import app
+spec = app.openapi()   # OpenAPI 3.1.0 — 15 paths, 17 operations, 19 schemas
+```
+
+Cross-checked against source for what the spec cannot express: role gates,
+verbatim `detail` strings, and the untyped preview/download responses. The
+generated `openapi.json` was written to the temp dir, not the repo, so this
+branch gains no build artefacts. **No backend file was modified.**
+
+The spec confirms 17 operations — matching the hand-built Phase 1 inventory
+exactly — and independently corroborates the Phase 1 findings:
+
+- `securitySchemes: {HTTPBearer: {type: http, scheme: bearer}}`, and only three
+  operations carry `security: none`: `POST /auth/login`, `POST /invite/accept`,
+  `GET /health`. Confirms no cookie auth and no query-param token.
+- `GET /documents` query params are `page` (default 1, min 1) and `page_size`
+  (default 20, min 1, **max 100**) — machine-confirmed, not read by eye.
+- `TenantStatus` = `active|suspended|offboarding|purged`;
+  `UserRole` = `super_admin|client_admin|employee`.
+- `POST /auth/refresh` has **no `requestBody`** — the empty `RefreshRequest`
+  model is confirmed, so send no body.
+- `suspend` and `reactivate` also have **no `requestBody`** — the placeholder
+  request models are genuinely unused.
+- **No search, Q&A, conversation, message, feedback, embedding, vector or user
+  management path exists in the spec.** 15 paths, all enumerated. Confirms
+  Phase 1 by generated output rather than grep.
+- **No 429 and no rate limiting** anywhere in the app.
+- Only **2 of 19 schemas** belong to documents upload/response; there is no
+  schema at all for preview or download success bodies, because those routes
+  declare no `response_model`. That is why the two-shape preview has to be
+  documented by hand.
+
+New details the spec surfaced that Phase 1 did not have:
+
+- **`TokenResponse.token_type` is not in the required list** — it has a default
+  of `"bearer"`, so it is always present in practice but is not contractually
+  required.
+- **`InviteResponse.used_at`, `AuditLogResponse.actor_user_id` and several
+  `storage_quota_mb` fields are `string|null` unions**, and pydantic emits them
+  as `anyOf` — the required-list alone does not reveal nullability, so the TS
+  types must be `| null`, not optional.
+- **`TenantCreate.short_code` is 1-50 in the schema but `[A-Z0-9]{2,20}` after
+  a validator** (`schemas/tenant.py:27-35`). Two-layer: the schema length passes,
+  the validator then rejects with a 422 message, and the value is uppercased and
+  trimmed first. `storage_quota_mb` is `>= 0`.
+- **`AuditLogResponse.actor_role` is a bare `string`, not `UserRole`** — it can
+  be `system` for invite acceptance, which is not in the enum. Typing it as
+  `UserRole` would be wrong.
+- **A missing `Authorization` header yields a 403 from HTTPBearer itself**, with
+  no `detail` string of ours — so the error normaliser must tolerate a
+  `detail`-less 403 as well as a string and an array.
+
+The contract file also records the `refresh`-500 defect, the 500-entry audit cap,
+the `Invalid or expired invite` four-cause collapse, the suspend-deletes-sessions
+side effect, and the rule that the 200 ms login delay plus identical 401 means
+lockout is not distinguishable in the UI.
+
+---
+
 # Working rules
 
 1. Work only on the frontend.
@@ -913,6 +980,40 @@ this one *is* distinguishable and should be shown as a clear state.
 ## Log
 
 <!-- Newest first. -->
+
+### 2026-09-30 — PHASE 3 API contract written
+
+Created `frontend/API_CONTRACT.md` — the per-endpoint contract (method, path,
+auth, request, response, expected errors) for all 17 operations, plus shared
+enums, the role matrix, a cross-cutting error table, and a "not in the backend"
+list.
+
+Generated from the app's own OpenAPI output rather than by hand, then
+cross-checked against source for what the spec cannot express. The generator
+script and `openapi.json` were written to the temp dir, **not** the repo, so no
+build artefact was committed and no backend file was touched.
+
+The spec independently corroborated the Phase 1 findings: exactly three public
+operations, `HTTPBearer` as the only scheme, the `page`/`page_size` bounds, the
+two enums, no request body on refresh/suspend/reactivate, and no search,
+Q&A, conversation, embedding, vector or user-management path in any of the 15
+paths.
+
+It also exposed contract details that reading the routers by eye had missed:
+`token_type` is defaulted rather than required; `used_at` / `actor_user_id` /
+`storage_quota_mb` are `string|null` unions that pydantic reports as `anyOf` and
+that a required-list alone will not reveal; `short_code` has a two-layer
+constraint (1-50 in the schema, `[A-Z0-9]{2,20}` in a validator, uppercased and
+trimmed first); `actor_role` is a plain `string` that can hold `system`, so it
+must not be typed as `UserRole`; and a missing auth header produces a
+`detail`-less 403 from HTTPBearer, which the error normaliser must tolerate
+alongside a string `detail` and an array `detail`.
+
+Also recorded: only 2 of 19 schemas relate to documents, and preview/download
+have no response schema at all because those routes declare no `response_model` —
+which is why the two-shape preview has to be documented manually.
+
+Still no implementation. `frontend/` contains documentation only.
 
 ### 2026-09-30 — PHASE 2 structure proposed (no files created)
 
