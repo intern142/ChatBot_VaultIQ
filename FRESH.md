@@ -963,6 +963,120 @@ unverifiable against `vaultiq_app` due to Known Defect #2.
 
 ---
 
+# PHASE 6 — VALIDATION CHECKLIST
+
+After **every major implementation step** (each of the 18 in Phase 5), run this
+checklist before considering the step done. No feature is "complete" until all
+items pass.
+
+## 1. Build & Type Checks
+
+| Check | Command | Must be |
+|---|---|---|
+| TypeScript compile | `npm run typecheck` / `tsc --noEmit` | 0 errors |
+| Vite build | `npm run build` | succeeds, no warnings treated as errors |
+| Lint | `npm run lint` | 0 errors |
+
+## 2. Runtime — Browser Console
+
+| Check | What to verify |
+|---|---|
+| No uncaught JS errors | Clean console on page load and after interactions |
+| No React warnings | No "key" warnings, no deprecated API usage, no hydration mismatches |
+| No network errors unrelated to expected 4xx/5xx | Only expected error responses appear |
+
+## 3. Network Request Verification
+
+For **every** API call the feature makes:
+
+| Aspect | Verify against `API_CONTRACT.md` |
+|---|---|
+| **Method & path** | Exact match (e.g., `POST /documents`, not `POST /document`) |
+| **Headers** | `Authorization: Bearer <token>` present on protected calls; **absent** on `/auth/login`, `/invite/accept`, `/health`; `Content-Type: application/json` on JSON bodies; **no** `Content-Type` on `multipart/form-data` (upload) |
+| **Query params** | `page`, `page_size` on `GET /documents`; no unexpected params |
+| **Request body** | JSON shape matches schema (e.g., `LoginRequest` has `organisation_code`, `email`, `password`); `FormData` has single `file` field for upload |
+| **Auth token** | Token from `sessionStorage`, matches `refresh`/`login` response |
+
+## 4. Response Handling Verification
+
+| Aspect | Verify |
+|---|---|
+| **Success parsing** | Response typed correctly (e.g., `DocumentListResponse` with `documents[]`, `total`, `page`, `page_size`) |
+| **Discriminated unions** | Preview branches on `preview === null`; download returns `Blob` |
+| **Error normalisation** | `ApiError` thrown for **all** non-2xx; `message` is string (never array); `status` is number |
+| **422 handling** | Field-level messages extracted from `detail[]` for form validation |
+| **401 handling** | Single refresh attempted; on refresh failure → logout + redirect to `/login` |
+| **403 handling** | "Tenant suspended" vs "Insufficient permissions" distinguished by `message` |
+| **404 handling** | "Document not found" / "Tenant not found" shown without revealing cross-tenant existence |
+| **413/415 handling** | Upload toast shows server `detail` string verbatim |
+| **500 handling** | Never retried; generic toast; no crash |
+
+## 5. Authentication / Session Behaviour
+
+| Scenario | Expected |
+|---|---|
+| Fresh load with valid token in `sessionStorage` | `AuthContext` bootstrap calls `refresh`, gets fresh `role`/`tenantId`, renders correct nav |
+| Fresh load with expired/revoked token | `refresh` fails → `logout()` → redirect to `/login` |
+| Login with correct credentials | `token`, `role`, `tenantId` stored; redirect to role-appropriate page |
+| Login with wrong credentials | 401 "Invalid credentials" (identical for wrong code/email/password/lockout); ~200ms delay |
+| Login with suspended tenant | 403 "Tenant suspended" — distinguishable, shown as state |
+| Logout button | Calls `POST /auth/logout`, clears `sessionStorage`, redirects to `/login` |
+| 401 on any protected call mid-session | Single refresh attempt; if refresh succeeds → retry original; if fails → logout |
+| Two tabs, same user, one logs out | Other tab's next request → 401 → refresh (fails, session revoked) → logout |
+
+## 6. Role & Permission Verification
+
+| Role | Must see | Must NOT see |
+|---|---|---|
+| `super_admin` | Operator nav: Tenants, Audit; Super Admin badge | Documents, Upload, Usage, any tenant-scoped data |
+| `client_admin` | Tenant nav: Documents, Usage; Client Admin badge | Operator nav, Audit, Tenant create/suspend/invite |
+| `employee` | Tenant nav: Documents (list/preview/download); Employee badge | Usage, Delete document, Operator nav |
+
+## 7. Specific Feature Validation Matrix
+
+| Feature | Critical checks |
+|---|---|
+| **Login** | `organisation_code` not uppercased by client; `SUPER` exact match; 200ms delay observed; lockout indistinguishable |
+| **Document upload** | `FormData` with `file` field; no `Content-Type` header; 50MB client check + server 413; 7-type client filter + server 415; progress UI; success refreshes list |
+| **Document list** | Pagination `page`/`page_size` (max 100); descending `created_at`; empty state when `total === 0` |
+| **Preview** | Text files show first 5000 chars + `truncated`; others show `message` + `size_bytes`; branch on `preview === null` |
+| **Download** | Blob fetch with auth header; object URL created → click → revoke; original filename used |
+| **Delete** | Confirm dialog; 204 empty body parsed; list refreshes; employee cannot see delete button |
+| **Storage usage** | `client_admin` only; shows `total_documents`, `total_size_mb` (2dp) |
+| **Tenant create** | `short_code` uppercased + trimmed client-side; 422 on pattern; 409 on duplicate |
+| **Suspend/Reactivate** | No request body; immediate 401 for suspended tenant's sessions tested |
+| **Invite** | Code displayed once, copy-to-clipboard; 400 if tenant not active / already has admin / invite exists |
+| **Audit log** | Capped at 500, newest first; UI notes cap; `actor_role` may be `system` |
+| **Invite accept** | Public (no auth); password strength 5 rules shown inline; 400 "Invalid or expired invite" covers 4 causes |
+
+## 8. Cross-Cutting
+
+- **CORS**: Dev server on `http://localhost:5173` (exact allowlist match)
+- **No credentials**: `credentials: 'omit'` everywhere
+- **No token in URL**: Never in query string
+- **No cookie reliance**: Backend has no cookie auth
+- **Responsive layout**: Sidebar collapses on mobile; header shows role badge
+
+## 9. Sign-off per Step
+
+A step is **done** only when:
+- [ ] All build/type/lint checks pass
+- [ ] Manual run through the feature works end-to-end
+- [ ] Network tab confirms every request matches contract
+- [ ] Error paths tested (401, 403, 404, 413, 415, 422, 500)
+- [ ] Auth/session behaviour matches table above
+- [ ] Role gating verified for all three roles
+- [ ] No console errors
+
+---
+
+### 2026-09-30 — PHASE 6 validation checklist recorded (no files created)
+
+Checklist only. 9 categories, 40+ specific verification items. Each Phase 5 step
+must pass the full checklist before moving to the next. No implementation yet.
+
+---
+
 # Working rules
 
 1. Work only on the frontend.
