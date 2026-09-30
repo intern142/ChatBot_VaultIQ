@@ -1593,3 +1593,28 @@ Corrections to the earlier version of this file:
   multipart upload.
 - Added Known gaps: no search/Q&A endpoint, no user management, no password
   reset, migrations 007–009 absent, super-admin auth broken under `vaultiq_app`.
+
+---
+
+### 2026-09-30 — PHASE 1 implementation complete (frontend scaffold)
+
+Committed `172c484`: complete React + TypeScript + Vite frontend scaffold on `FE_clone`.
+
+**Files created (65 source files):**
+- Build config: `package.json`, `tsconfig.json`, `vite.config.ts`, `.env.example`, `index.html`
+- API layer: `client.ts`, `errors.ts`, `types.ts`, `auth.ts`, `documents.ts`, `admin.ts`, `invite.ts`
+- Auth: `AuthContext.tsx`, `useAuth.ts`, `LoginPage.tsx`
+- Routing: `paths.ts`, `guards.tsx` (`RequireAuth`, `RequireRole`), `AppRoutes`
+- Layout: `AppShell`, `Sidebar`, `Header`
+- Pages: `LoginPage`, `NotFoundPage`, `DocumentsPage`, `StoragePage`, `TenantsPage`, `AuditLogPage`
+- Components: `DocumentTable`, `UploadDialog`, `PreviewPane`, `StorageUsageCard`, `TenantTable`, `CreateTenantDialog`, `InviteDialog`, UI primitives
+- Hooks: `useAuth`, `useDocuments`, `useTenants`, `useAsync`, `useUpload`
+- Utils: `format`, `download`
+
+**Build verified:** `npm run build` succeeds, `tsc --noEmit` clean.
+
+**Decisions applied:**
+- Token storage: `localStorage` (24h token, no refresh token)
+- Super Admin screens: built, tested against `vaultiq` superuser, marked "requires 007"
+
+**Known gaps:** No search/Q&A endpoint, no user management, super-admin login 401 under `vaultiq_app` (requires migration 007).
