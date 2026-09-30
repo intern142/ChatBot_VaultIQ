@@ -22,9 +22,29 @@ from app.main import app
 
 settings = get_settings()
 
+# Two distinct database identities are used by the test suite:
+#
+#   ADMIN_DATABASE_URL - the migration/DDL identity (local dev: the `vaultiq`
+#       superuser). Used ONLY to truncate and seed fixtures. It has BYPASSRLS
+#       so it can see every row, which is exactly what we do not want the
+#       application to be able to do.
+#
+#   APP_DATABASE_URL - the identity the application under test actually uses.
+#       Defaults to `vaultiq_app`, which is NOBYPASSRLS, so every request the
+#       suite makes has row-level security genuinely enforced.
+#
+# The default must be the NOBYPASSRLS role. Running the suite against the
+# superuser silently disables every RLS policy and makes the whole tenant
+# isolation suite meaningless.
+
+ADMIN_DATABASE_URL = os.environ.get("ADMIN_DATABASE_URL", settings.DATABASE_URL)
+APP_DATABASE_URL = os.environ.get(
+    "APP_DATABASE_URL",
+    ADMIN_DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"),
+)
 
 test_app_engine = create_async_engine(
-    settings.DATABASE_URL,
+    APP_DATABASE_URL,
     echo=False,
     poolclass=NullPool,
 )
@@ -142,23 +162,6 @@ async def app_db_session(app_db_engine):
         expire_on_commit=False,
     )
     async with session_factory() as session:
-        yield session
-
-
-@pytest_asyncio.fixture(scope="function")
-async def app_session(app_db_engine):
-    """Session on app identity (vaultiq_app), NOBYPASSRLS, no truncate.
-
-    Built from app_db_engine fixture rather than the application's
-    AsyncSessionLocal, because the latter is wired to settings.DATABASE_URL -
-    the superuser. Reusing it here would silently make every assertion below
-    vacuous, which is precisely the trap this module exists to close.
-    """
-    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-    factory = async_sessionmaker(
-        app_db_engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with factory() as session:
         yield session
 
 
