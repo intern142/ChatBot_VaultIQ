@@ -16,9 +16,23 @@ Branch topology, verified with `git ls-files` / `git grep`:
 
 | Branch | Commit | Role |
 |---|---|---|
-| `main` | `36ffb78` | colleague's branch — **DO NOT MODIFY** |
-| `BE_clone` | `d90833d` | clean backend baseline — **READ-ONLY** |
-| `FE_clone` | `d90833d` + doc commits | all frontend work happens here |
+| `BE_accurate` | `d90833d` | source of truth — clean backend + CORS |
+| `BE_clone` | `d90833d` | clone of `BE_accurate`, identical (0 files differ) — **READ-ONLY** |
+| `FE_clone` | `d90833d` + doc commits | all frontend work happens here; backend subtree byte-identical to `BE_accurate` |
+| `main` (local) | `5738f1e` | stale, diverged — the **abandoned** frontend attempt. DO NOT MODIFY |
+| `origin/main` | `36ffb78` | colleague's branch — DO NOT MODIFY |
+
+**Baseline is `d90833d` ("Enable CORS for the frontend dev server").**
+`BE_accurate`, `BE_clone` and `FE_clone` all sit on it. `FE_clone` adds only
+`FRESH.md` and `frontend/API_CONTRACT.md` on top; no backend file differs.
+
+For the record, `main` is deliberately **not** the baseline. Local `main` is
+`5738f1e` ("feat(frontend): create tenant login UI with mock auth", divya),
+which is the abandoned attempt that *added* 27 frontend files and **4323
+committed `node_modules` files**, and which diverges from the baseline by 60
+backend files. It is neither an ancestor of `BE_clone` nor a buildable base.
+Excluding those frontend files is precisely why `FE_clone` was repointed to
+`d90833d`; it now contains zero frontend source and zero `node_modules`.
 
 The previous frontend implementation was abandoned for endpoint mismatches.
 This is a greenfield frontend on the clean backend baseline.
