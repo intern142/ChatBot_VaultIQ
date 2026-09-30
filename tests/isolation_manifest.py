@@ -9,6 +9,9 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/health"),
     ("POST", "/auth/login"),
     ("POST", "/invite/accept"),
+    # VQ-301: unauthenticated, credential is a one-time code. Exercised with
+    # tenant B's code against tenant A in test_password_reset.py.
+    ("POST", "/auth/reset-password"),
 
     # Authenticated — any role
     ("POST", "/auth/refresh"),
@@ -29,6 +32,10 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+
+    # VQ-301: Client Admin acting inside their own tenant. Cross-tenant issue
+    # attempts are covered in test_password_reset.py::TestIssueCode.
+    ("POST", "/users/{user_id}/password-reset"),
 }
 
 

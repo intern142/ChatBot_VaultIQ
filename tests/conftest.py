@@ -77,7 +77,7 @@ def db_conn():
     conn = psycopg2.connect(settings.DATABASE_URL_SYNC)
     conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs CASCADE")
+    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE")
     conn.commit()
     yield conn
     conn.close()
@@ -92,7 +92,7 @@ async def db_engine():
     )
     # Truncate at start of each test function
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs CASCADE"))
+        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
     yield engine
     await engine.dispose()
 
@@ -122,6 +122,28 @@ async def app_db_engine():
 
 
 @pytest.fixture(scope="function")
+def app_db_conn():
+    """Sync connection as the vaultiq_app role, so RLS is genuinely enforced.
+
+    The application connection is `APP_DATABASE_URL`, which locally resolves to
+    the superuser. A test that wants to prove a Postgres policy refuses
+    something has to talk to the database as the app role itself, rather than
+    trusting that an HTTP test exercised the policy.
+
+    It does not truncate. Combine with `db_conn` (superuser) to seed, then read
+    or attempt to write here.
+    """
+    app_url = settings.DATABASE_URL_SYNC.replace(
+        "vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"
+    )
+    conn = psycopg2.connect(app_url)
+    conn.autocommit = False
+    yield conn
+    conn.rollback()
+    conn.close()
+
+
+@pytest.fixture(scope="function")
 async def app_db_session(app_db_engine):
     """Async session as vaultiq_app role - RLS enforced."""
     admin_engine = create_async_engine(
@@ -130,7 +152,7 @@ async def app_db_session(app_db_engine):
         poolclass=NullPool,
     )
     async with admin_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
+        await conn.execute(text("TRUNCATE users, tenants, sessions, reset_codes CASCADE"))
     await admin_engine.dispose()
     session_factory = async_sessionmaker(
         app_db_engine,
