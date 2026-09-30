@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle, vq-201-tenant-upload]
+    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle, vq-201-tenant-upload, vq-301-password-reset]
   pull_request:
     branches: [main]
 
@@ -73,7 +73,15 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
+          # Two identities on purpose. Fixtures seed and truncate as the
+          # superuser (it has BYPASSRLS and can see every row, which is exactly
+          # what the application must not be able to do), while the application
+          # under test connects as vaultiq_app, which is NOBYPASSRLS. Setting
+          # DATABASE_URL to the superuser here would make every RLS policy inert
+          # for the whole suite, including the tenant isolation tests and the
+          # reset_codes policies this branch depends on.
+          ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
+          DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           OCR_REQUIRED: "true"
           JWT_SECRET: test-secret
