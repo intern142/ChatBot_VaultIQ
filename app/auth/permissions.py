@@ -21,6 +21,11 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/health"): {"super_admin", "client_admin", "employee"},
     ("POST", "/auth/login"): {"super_admin", "client_admin", "employee"},
     ("POST", "/invite/accept"): {"super_admin", "client_admin", "employee"},  # Public - no auth
+    # VQ-301: unauthenticated, but the only credential is a 256-bit one-time
+    # code. Listed for all three roles because the matrix is the declaration
+    # of what may call the operation, and the role is whatever the code's owner
+    # is; the code, not the role, is the authorisation.
+    ("POST", "/auth/reset-password"): {"super_admin", "client_admin", "employee"},
 
     # Auth — any authenticated user
     ("POST", "/auth/refresh"): {"super_admin", "client_admin", "employee"},
@@ -41,6 +46,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
     ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
     ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
+
+    # VQ-301: Client Admin acting inside their own tenant. Super Admin is
+    # excluded on purpose (VQ-106 AC4 reserves tenant-scoped user management for
+    # the client), and it is not under /admin so the VQ-107 invariant that every
+    # /admin operation is Super Admin only stays true without an exception.
+    ("POST", "/users/{user_id}/password-reset"): {"client_admin"},
 }
 
 

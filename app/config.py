@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     JWT_EXPIRATION_HOURS: int = 24
     MAX_FAILED_ATTEMPTS: int = 5
     LOCKOUT_DURATION_MINUTES: int = 15
+    # VQ-301: a reset code is valid for this long, and at most this many may be
+    # live for one user at a time.
+    RESET_CODE_EXPIRY_HOURS: int = 24
+    RESET_CODE_MAX_LIVE_PER_USER: int = 3
     APP_ENV: str = "development"
     APP_PORT: int = 8000
     STORAGE_ROOT: str = "./storage"

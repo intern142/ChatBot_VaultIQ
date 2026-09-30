@@ -21,3 +21,15 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PasswordResetIssued(BaseModel):
+    """Returned to the Client Admin for on-screen hand-off.
+
+    The only time the plaintext code exists outside the user's own screen. It is
+    never written to a log line and is not recoverable afterwards, because only
+    its SHA-256 digest is stored.
+    """
+
+    reset_code: str = Field(..., min_length=1, max_length=100)
+    expires_at: datetime

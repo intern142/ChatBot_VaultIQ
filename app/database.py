@@ -60,6 +60,25 @@ async def set_platform_context(session: AsyncSession) -> None:
     await session.execute(text("SELECT set_config('app.platform_access', 'on', true)"))
 
 
+async def set_reset_code_context(session: AsyncSession, code_hash: str) -> None:
+    """Allow a SELECT of the one reset_codes row matching this hash.
+
+    The password-reset endpoint is unauthenticated by design, so it has no
+    tenant context. The `reset_code_lookup` policy in migration 27905f137fd4
+    grants exactly one capability to a no-context session: finding the row
+    whose stored hash equals the hash the caller already holds. It is SELECT
+    only and cannot consume the code.
+
+    The endpoint reads `tenant_id` from the row this unlocks, establishes the
+    tenant context from that, and performs the claim under it. The context is
+    therefore never derived from caller input.
+    """
+    await session.execute(
+        text("SELECT set_config('app.reset_code_hash', :code_hash, true)"),
+        {"code_hash": code_hash},
+    )
+
+
 async def apply_token_context(session: AsyncSession, payload: dict) -> None:
     """Set the RLS context implied by a token payload.
 
