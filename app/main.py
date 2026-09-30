@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import get_settings
 from app.routes.auth import router as auth_router
 from app.routes.documents import router as documents_router
 from app.routes.admin import router as admin_router
@@ -8,6 +11,20 @@ app = FastAPI(
     title="VaultIQ API",
     description="Multi-tenant documents-only Q&A system",
     version="0.1.0",
+)
+
+_origins = [
+    origin.strip()
+    for origin in get_settings().CORS_ALLOWED_ORIGINS.split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth_router)

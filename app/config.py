@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_PORT: int = 8000
     STORAGE_ROOT: str = "./storage"
+    # Browser origins permitted to call the API. Comma-separated, exact match,
+    # no wildcards: the API is credentialed (Bearer token) and a wildcard with
+    # allow_credentials is rejected by browsers anyway.
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
 
 @lru_cache()
