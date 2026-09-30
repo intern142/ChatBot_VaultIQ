@@ -355,6 +355,185 @@ cannot be built on this branch.
 
 ---
 
+# PHASE 2 — PROPOSED FRONTEND STRUCTURE (design only, nothing created)
+
+No files were created, moved or deleted in this phase. This is a proposal for
+review before any code is written.
+
+## Framework decision
+
+The repo has no frontend at all, so the stack is a choice, not a constraint.
+Recommended: **React + TypeScript + Vite**, in a `frontend/` subdirectory.
+
+Why this, given what Phase 1 found:
+
+- **Vite** defaults to dev port **5173** and `localhost`, which is already the
+  first entry in the backend's CORS allowlist. Zero backend config needed. Any
+  other tool would either collide on that port or force a CORS change I am not
+  allowed to make.
+- **TypeScript** is close to free value here: preview returns two different
+  untyped shapes, `TenantResponse` and `TenantListResponse` are field-identical,
+  and several responses are `Optional`. A discriminated union on
+  `preview === null` prevents a whole class of bug.
+- **React** is not required by anything in the repo; it is chosen for
+  familiarity and because role-gated routing is a solved problem in it. Any
+  other framework works — the structure below is framework-agnostic apart from
+  the `.tsx` extensions.
+
+`npm`, `tsc` and `vite` all need network access to install once. That is a
+build-time step on a developer machine, consistent with bundling the embedding
+model at build time. It is *not* a runtime dependency: the deployed app must
+serve its own assets with no outbound calls, no CDN, no external fonts, no
+analytics. I should flag this to the reviewer explicitly rather than assume the
+install is acceptable offline.
+
+## Proposed layout
+
+```
+frontend/
+├── index.html                  Vite entry, mounts #root
+├── package.json                deps + scripts
+├── tsconfig.json
+├── vite.config.ts              dev server port 5173
+├── .env.example                VITE_API_BASE_URL
+├── public/
+│   └── favicon.ico
+└── src/
+    ├── main.tsx                createRoot, mounts <App>
+    ├── App.tsx                 providers + <Router>
+    ├── config.ts               reads VITE_API_BASE_URL, VITE_* constants
+    │
+    ├── api/                    one file per backend router + shared plumbing
+    │   ├── client.ts           fetch wrapper, error normalisation, auth header
+    │   ├── auth.ts             login / refresh / logout
+    │   ├── documents.ts        list / upload / preview / download / delete / usage
+    │   ├── admin.ts            tenants / suspend / reactivate / invite / audit
+    │   └── invite.ts           accept
+    │
+    ├── context/
+    │   └── AuthContext.tsx     token, role, tenantId, login, logout, bootstrap
+    │
+    ├── routes/
+    │   ├── index.tsx           route table
+    │   ├── guards.tsx          RequireAuth, RequireRole
+    │   └── paths.ts            path constants (never inline a string)
+    │
+    ├── pages/
+    │   ├── LoginPage.tsx
+    │   ├── AcceptInvitePage.tsx
+    │   ├── NotFoundPage.tsx
+    │   ├── operator/
+    │   │   ├── TenantsPage.tsx
+    │   │   └── TenantAuditPage.tsx
+    │   └── tenant/
+    │       ├── DocumentsPage.tsx
+    │       └── StoragePage.tsx
+    │
+    ├── components/
+    │   ├── layout/             AppShell, NavBar, RoleBadge
+    │   ├── documents/          DocumentTable, DocumentPreview, UploadForm
+    │   ├── tenants/            TenantTable, CreateTenantForm, InvitePanel
+    │   └── ui/                 Button, Modal, Table, Alert, Spinner, Field
+    │
+    ├── hooks/
+    │   ├── useDocuments.ts
+    │   ├── useTenants.ts
+    │   └── useAsync.ts
+    │
+    ├── types/
+    │   └── api.ts              TS types mirroring the pydantic schemas
+    │
+    └── utils/
+        ├── errors.ts           detail string | detail[] -> message
+        ├── format.ts           bytes, MB, dates
+        └── download.ts         authenticated blob download
+```
+
+## Why each folder exists
+
+Folders that carry a real boundary, and nothing that could not be justified:
+
+**`api/`** — the only place that knows URLs, HTTP verbs and wire shapes. One file
+per backend router so a backend change maps to one file. `client.ts` owns the
+`Authorization` header, the multipart exception (do not set `Content-Type`),
+and turning FastAPI's string-or-array `detail` into one `ApiError` type. This is
+the boundary that makes "never guess endpoints" enforceable by review.
+
+**`context/`** — one `AuthContext` because token, role and tenant are needed by
+the router, the nav and every page. Not a state library: one context is enough.
+It owns bootstrap-on-mount via `POST /auth/refresh` (there is no whoami
+endpoint) and the global 401 handler that clears auth state and redirects to
+login, which is what tenant suspension looks like to the client.
+
+**`routes/`** — the route table plus the two guards. Guards are security-relevant
+UI, not page logic, and keeping them out of pages makes the role matrix
+auditable in one file. `paths.ts` exists so a path is never typed inline twice.
+
+**`pages/`** — one per screen, split by surface. `operator/` and `tenant/` are
+separate because they are for mutually exclusive roles: a super_admin must never
+see the documents tree and a client_admin must never see the admin tree.
+`StoragePage` is separate from `DocumentsPage` because usage is
+client_admin-only and its numbers do not belong on an employee's screen.
+
+**`components/`** — three subfolders: `ui/` for presentational primitives with
+no domain knowledge, `layout/` for shell and nav, and one per feature domain
+(`documents/`, `tenants/`) so a feature's pieces are not scattered. These are
+split because the three kinds genuinely change for different reasons.
+
+**`hooks/`** — data fetching per domain, so pages stay declarative and the
+refresh-500 workaround lives in one place. `useAsync` is the shared
+loading/error/data state machine.
+
+**`types/`** — TS mirrors of the pydantic schemas, in one file, so the two
+response shapes of preview and the identical tenant schemas are visible
+together. Needed because preview has no `response_model` and TypeScript would
+otherwise infer `any`.
+
+**`utils/`** — pure functions with no React and no network: error-message
+extraction, byte/date formatting, and the authenticated download that a plain
+`<a href>` cannot do.
+
+**`config.ts`** — the single read point for `VITE_API_BASE_URL`. Worth its own
+file because the base URL must never be duplicated.
+
+**`assets/`** — deliberately **omitted**. A single inline SVG or a file in
+`public/` needs no folder, and an empty directory is structure for its own sake.
+Create it only if a real asset warrants it.
+
+**`types/` vs colocating** — types are in one file rather than beside each API
+function because the tenant and document types are shared across pages,
+components and api modules; scattering them would create circular imports.
+
+## Files I would *not* create
+
+- `store/` — no Redux/Zustand. One auth context covers the whole app.
+- `services/` as a sibling of `api/` — that is the same concern under two names.
+- `constants/` — CORS and limits are backend facts already captured in
+  `types/api.ts` and `config.ts`.
+- `models/` or `entities/` — that is `types/` again.
+- `styles/` as a top-level folder — stylesheet-per-component, colocated, with a
+  single global file for tokens if needed.
+- `utils/constants.ts` — a constants dumping ground; values live next to their
+  consumer.
+- A `SearchPage`, `ChatPage` or `ConversationsPage` — **no such endpoint
+  exists.** The whole point of Phase 1 was to establish that.
+- Per-endpoint component files (`LoginForm.tsx`, `LogoutButton.tsx`) — a form
+  and a button are not a component each until they have real behaviour.
+
+## Two design points the reviewer should rule on
+
+1. **Where the token lives.** `sessionStorage` dies when the tab closes;
+   `localStorage` survives a restart but is readable by any XSS. Given the
+   backend revokes server-side and there is no refresh-cookie mechanism,
+   `sessionStorage` is the safer default and means a reload forces a
+   `POST /auth/refresh`. I would not add a persistence library for this.
+2. **Whether to attempt super_admin login at all**, knowing it 401s under
+   `vaultiq_app` (Known Defect #2). I would build the operator screens and
+   verify them against the `vaultiq` superuser connection, and note the defect
+   as the reason production super-admin login is untested.
+
+---
+
 # Working rules
 
 1. Work only on the frontend.
@@ -734,6 +913,34 @@ this one *is* distinguishable and should be shown as a clear state.
 ## Log
 
 <!-- Newest first. -->
+
+### 2026-09-30 — PHASE 2 structure proposed (no files created)
+
+Design only. Nothing created, moved or deleted. Proposed React + TypeScript +
+Vite in `frontend/`, with the choice justified against Phase 1 rather than
+asserted: Vite's default 5173/localhost already matches the first CORS
+allowlist entry, and TypeScript earns its place because preview returns two
+untyped shapes and two tenant schemas are field-identical.
+
+Structure: `api/` (per-backend-router modules + one `client.ts` owning the auth
+header, the multipart exception and `detail` normalisation), `context/`
+(AuthContext only, no state library), `routes/` (route table + `RequireAuth` and
+`RequireRole` guards + `paths.ts`), `pages/` split `operator/` vs `tenant/`
+because the two surfaces are for mutually exclusive roles, `components/` split
+`ui/` / `layout/` / per-feature, `hooks/` (one per domain + shared
+`useAsync`), `types/api.ts`, and `utils/`.
+
+Explicitly **omitted** `assets/` (no content needs it — an empty folder is
+structure for its own sake), plus `store/`, `services/`, `constants/`,
+`models/`, `styles/` and any `SearchPage`/`ChatPage`.
+
+Flagged for the reviewer: (1) token storage — recommending `sessionStorage` over
+`localStorage` because the backend has no refresh cookie and a reload can
+re-validate via `POST /auth/refresh`; (2) super-admin login 401s under
+`vaultiq_app`, so operator screens would be verified against the superuser
+connection. Also flagged that the one-time `npm install` needs network on a
+developer machine — build-time only, no runtime egress — and asked that this be
+confirmed rather than assumed acceptable.
 
 ### 2026-09-30 — PHASE 1 analysis complete (no files modified)
 
