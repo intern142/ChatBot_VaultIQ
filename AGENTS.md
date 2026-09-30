@@ -108,17 +108,85 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: vq-201-tenant-upload
-- Current task: VQ-201 — Document upload, tenant-scoped, with quota
-- Status: **IN PROGRESS** (Gate 1 ✅, Gate 2 ✅, Gate 3 ✅, Gate 4 ✅)
-- PR: **#10 open** (https://github.com/intern142/ChatBot_VaultIQ/pull/10)
-- VQ-101 through VQ-110: ALL COMPLETE (Gates 1-4, 6 done; Gate 5 review + Gate 7 demo pending on each)
-- Merged: Integrated app from vq-107 (auth, documents, admin, invites, RLS, permissions, tenant lifecycle)
-- Restored: test_auth.py, test_tenant_context.py, test_documents.py + db_conn fixture
-- Current test suite: **144 tests — ALL PASS** (3 consecutive full runs)
+- **Current branch: `vq-301-password-reset`** (remote `14e45e9`, pushed)
+- **Current task: VQ-301 — User management for Client Admins.** Only **AC4**
+  (password reset) is in scope on this branch. Gates 1 and 2 done, Gate 3 green
+  locally, **CI red** (see Blockers). Gates 4-7 outstanding.
+- **Full suite locally: 189 passed, 0 failed** (163 pre-existing + 26 new).
+- Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110.
+- Unmerged Sprint 3 work: VQ-201 (PR #10), VQ-202 (PR #11), VQ-203 (PR #13).
+- `AGENTS_BE.md` is **not** on this branch; it lives only on `BE_accurate` at
+  `8afa32c`. It has not been deleted.
+
+## VQ-301 — Gate 1 was wrong and has been corrected
+The committed approach note at `564df83` had the **platform operator / Super
+Admin** issue the reset code. `Documents\vq301.txt` says:
+
+> Password reset via a one-time code **the admin** hands over
+
+inside a story titled "User management for **Client Admins**". Every other
+Sprint 3 story names a Client Admin as the actor for tenant-scoped work, and
+VQ-106 AC4 explicitly denies Super Admin document-content operations. The note
+was corrected at `7101cde` and the code written against it was **reverted, not
+patched** — its `/auth/forgot-password` was unauthenticated and returned a live
+reset code to any caller, which is a token-disclosure hole.
+
+## VQ-301 — what was built (AC4 only)
+- `POST /users/{user_id}/password-reset` — Client Admin only, returns the code
+  for on-screen hand-off. No tenant filter in the query: `get_current_user`
+  already set context from the verified token, so RLS does the scoping and
+  another tenant's user is a 404, not a 403.
+- `POST /auth/reset-password` — unauthenticated, code is the only credential.
+- Mounted at **`/users`, not `/admin`**, on purpose. `test_tenant_lifecycle`
+  asserts every `/admin` matrix entry is Super Admin and that there are exactly
+  six; a tenant-scoped route there would have meant weakening that test or
+  deleting the invariant.
+- Migration `27905f137fd4`: `reset_codes` with **`tenant_id` denormalised** onto
+  the row, **`code_hash` = SHA-256, never plaintext**, and two policies —
+  `tenant_isolation` (ALL) and `reset_code_lookup` (**SELECT only**, keyed on
+  the hash the caller already holds).
+- Why `tenant_id` is denormalised: the consuming endpoint has no tenant context,
+  so an ORM read of `users` under RLS returns nothing. It reads the one row the
+  code unlocks, takes `tenant_id` from it, and sets context from that — never
+  from caller input. `SECURITY DEFINER` was rejected: it widens what a database
+  identity can do, the same trade VQ-203 declined for the worker.
+- The claim is one conditional `UPDATE ... WHERE used_at IS NULL AND
+  expires_at > now() RETURNING id`. Read-then-write would let two holders of one
+  valid code both succeed.
+- A reset also **revokes the user's sessions** and clears
+  `failed_login_attempts` / `locked_until`, otherwise the new password arrives
+  on an account that still cannot use it.
+- Cap of 3 live codes per user, oldest revoked, so a lost code cannot block a
+  reset.
+- Migration round trip verified: downgrade drops the table, upgrade restores
+  both policies with `reset_code_lookup` still SELECT-only.
+
+## VQ-301 — the other five acceptance criteria are NOT started
+Invite one user · CSV import with validate-all-then-apply-or-none and a
+row-by-row report · deactivate (ends sessions immediately) and reactivate ·
+role change Employee↔Client Admin behind a step-up re-authentication ·
+tenant-scoped auditing across all of the above. Only password reset is done.
+This branch does not complete VQ-301.
 
 ## Blockers
-- NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
+- **CI is red on this branch** (run `36747747979`): `130 passed, 59 errors`, all
+  `InsufficientPrivilegeError: permission denied for table users`. Cause
+  identified: switching the pytest step to `vaultiq_app` exposed that
+  `tests/conftest.py` still builds its `db_engine` (and the admin engine inside
+  `app_db_session`) from `settings.DATABASE_URL`, which is now the app role. The
+  fixtures therefore tried to `TRUNCATE` as `vaultiq_app`. The same two-line fix
+  already exists on `vq-203` (`cc37953`, "ci: fix db_engine to use
+  ADMIN_DATABASE_URL for truncation") and has not been ported here. Not yet
+  applied on this branch.
+- **The local Docker database was polluted by another branch's schema.** It
+  carried VQ-202's `document_group_id` (NOT NULL) and `document_approval_status`,
+  which do not exist on this branch, producing 17 spurious
+  `NotNullViolationError` failures. Fixed by dropping and rebuilding the schema
+  from this branch's own migrations. Anyone switching branches against this one
+  shared container must do the same or the results are meaningless.
+- VQ-201 / VQ-202 / VQ-203 all add a migration against the same parent, and each
+  has now been run against this one shared local database. Migration ordering
+  across those branches is still unresolved.
 
 ## VQ-110 Progress (Current Task)
 ### Gate 1: Approach Note ✅
@@ -766,6 +834,10 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
+- reset_codes: id, **tenant_id (FK)**, user_id (FK), **code_hash**, expires_at, used_at, created_by (FK users, nullable), created_at
+
+> `reset_codes.tenant_id` is denormalised and `code` is never stored — see the
+> VQ-301 section above for why both.
 
 ## RLS Policy
 - Enabled on users table (FORCE ROW LEVEL SECURITY)
@@ -778,11 +850,20 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
 - Enabled on audit_logs table (FORCE ROW LEVEL SECURITY)
 - Policy: tenant_id = current_setting('app.current_tenant', true)::uuid
+- Enabled on reset_codes table (FORCE ROW LEVEL SECURITY) — VQ-301
+- Policy `tenant_isolation` (ALL): tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+- Policy `reset_code_lookup` (**SELECT only**): code_hash = current_setting('app.reset_code_hash', true)
+
+> ⚠️ `NULLIF` is load-bearing, not stylistic. `set_config` is transaction-scoped,
+> so a pooled connection between transactions holds the **empty string**, and
+> `''::uuid` raises rather than matching nothing. Any new policy on this schema
+> must use the `NULLIF` form.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
 - POST /auth/refresh — Refresh token (requires valid Bearer token)
 - POST /auth/logout — Revoke session (requires valid Bearer token)
+- POST /auth/reset-password — **VQ-301.** Consume a one-time code, set a new password. No session required; the code is the only credential. Every failure is the same 401 and the same body.
 - GET /health — Health check (no auth required)
 
 ## Admin Endpoints (super_admin only)
@@ -792,6 +873,13 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - PATCH /admin/tenants/{id}/reactivate — Reactivate: status=active
 - POST /admin/tenants/{id}/invite — Create one-time, time-limited invite for first Client Admin
 - GET /admin/tenants/{id}/audit — Audit log for tenant
+
+> These six are the whole of `/admin`, and `test_tenant_lifecycle` asserts both
+> that they are all Super Admin and that there are exactly six. A tenant-scoped
+> operation must not be added under `/admin`.
+
+## Client Admin Endpoints (VQ-301)
+- POST /users/{user_id}/password-reset — Issue a one-time code for a user in the caller's own tenant; returns the code for hand-off. Refuses self-target.
 
 ## Public Invite Endpoint
 - POST /invite/accept — Accept invite (code, password) → creates client_admin, marks invite used
@@ -826,23 +914,26 @@ app/
     document.py      — Document model
     invite.py        — Invite model
     audit_log.py     — AuditLog model
+    reset_code.py    — ResetCode model (VQ-301; hashed code, denormalised tenant_id)
   routes/
     __init__.py
-    auth.py          — Login, refresh, logout endpoints
+    auth.py          — Login, refresh, logout, reset-password endpoints
     documents.py     — Document CRUD, preview, download, usage
     admin.py         — Tenant lifecycle (create/suspend/reactivate/invite/audit) — super_admin only
     invite.py        — POST /invite/accept — public invite acceptance
+    users.py         — VQ-301 Client Admin user management (client_admin only)
   schemas/
     __init__.py
-    auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
+    auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse, ResetPasswordRequest
     tenant.py        — TenantCreate, TenantResponse, TenantStatus
-    user.py          — UserCreate, UserResponse
+    user.py          — UserCreate, UserResponse, PasswordResetIssued
     document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
   services/
     storage.py       — File save/delete with tenant isolation
 tests/
   __init__.py
-  conftest.py        — DB fixtures (async engine, session, db_conn, app_db_engine, app_db_session)
+  conftest.py        — DB fixtures (async engine, session, db_conn, app_db_conn,
+                       app_db_engine, app_db_session)
   test_tenant.py     — 8 tests for VQ-101
   test_auth.py       — 18 tests for VQ-105
   test_tenant_context.py — 5 tests for VQ-103
@@ -850,6 +941,7 @@ tests/
   test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
   test_permissions.py — 21 tests for VQ-106
   test_tenant_lifecycle.py — 21 tests for VQ-107
+  test_password_reset.py — 26 tests for VQ-301 AC4
 alembic/
   env.py
   versions/
@@ -861,6 +953,10 @@ alembic/
     004_tenant_lifecycle.py — Invites, audit_logs, storage_quota_mb
     005_invite_code_lookup.py — Invite code RLS policy, audit actor_role text, tenants grant
     006_sessions_tenant_nullable.py — sessions.tenant_id nullable (super-admin sessions)
+    007_vq201_document_category_quota.py — VQ-201 category + quota
+    008_document_text_extraction.py — VQ-201 extraction metadata
+    009_platform_access_backport.py — VQ-202 platform access (backported)
+    27905f137fd4_vq_301_client_admin_password_reset_codes.py — VQ-301 reset_codes
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/
@@ -869,10 +965,26 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-301-password-reset`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
-- Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
+- Status: **RED on this branch** — run `36747747979`, `130 passed, 59 errors`
+
+> **This branch's CI now runs the application as `vaultiq_app`** (commit
+> `14e45e9`), not the superuser. That was Known Defect #1: the pytest step
+> previously set `DATABASE_URL` to `vaultiq`, which is `rolsuper = t,
+> rolbypassrls = t`, so every RLS policy was inert and none of the tenant
+> isolation claims were actually being tested.
+>
+> Switching the identity immediately exposed that `tests/conftest.py` builds its
+> `db_engine` — and the admin engine inside `app_db_session` — from
+> `settings.DATABASE_URL`, which is now the app role. Both then tried to
+> `TRUNCATE` as `vaultiq_app` and got `permission denied for table users`. The
+> fixtures must seed and truncate as the **admin** identity:
+> `db_engine` → `ADMIN_DATABASE_URL`, and the same inside `app_db_session`.
+> That two-line change already exists on `vq-203` (`cc37953`) and has not been
+> ported here yet. This is the same defect that broke `vq-203`; fix it once and
+> carry it to every branch.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
