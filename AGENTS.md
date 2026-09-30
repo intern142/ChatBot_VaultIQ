@@ -122,6 +122,38 @@ We sell this to many companies at once from one installation. Each company is a 
 - **Unmerged, all three open:** VQ-201 (PR #10, `CONFLICTING`), VQ-202 (PR #11,
   `MERGEABLE`), VQ-203 (PR #13). VQ-203 depends on both.
 
+## BE_accurate Branch (30 Sep 2026)
+- **Branch:** `BE_accurate` — tracking `origin/BE_accurate`, up to date
+- **HEAD:** `d90833d` — "Enable CORS for the frontend dev server"
+- **Base:** Sprint 1 + Sprint 2 fully merged (commit `9e5ecc8` = VQ-110 merge)
+- **Test suite:** **145 passed** (`python -m pytest tests/ -q`, ~264s)
+- **CORS:** Added in `d90833d` — explicit allowlist from `CORS_ALLOWED_ORIGINS`
+  (default `http://localhost:51373,127.0.0.1:5173`), no wildcard, credentialed via
+  Bearer token. Tests in `tests/test_cors.py` (preflight allowed/unlisted origin,
+  headers permitted, cross-tenant still refused without allow-origin header).
+- **AGENTS_BE.md:** Separate docs file on this branch summarizing BE_accurate state
+  (Sprint 1+2 completion table, frontend branches, handoff notes, commands to resume)
+- **Frontend handoff:** `FRONTEND_HANDOFF.md` created (uncommitted), shared with
+  colleague — port 5173 exact, routes `/admin/*`, PATCH for suspend/reactivate,
+  Super Admin 401 under `vaultiq_app`, no Q&A endpoints exist
+
+### CI Updates (30 Sep 2026 — today)
+- **VQ-201 (PR #10)**: Workflow updated to use two-database-identity pattern
+  (`ADMIN_DATABASE_URL` / `DATABASE_URL`), tests run as `vaultiq_app`
+  (NOBYPASSRLS). **163 passed** on CI run 36718987263.
+- **VQ-202 (PR #11)**: Same two-identity pattern applied. **163 passed** on CI
+  (run 36718987263 from earlier push).
+- **VQ-203 (PR #13)**: Workflow and `conftest.py` updated today to use two-identity
+  pattern. **CI currently FAILING** — 54 failed, 74 passed. Root cause:
+  migration collision. VQ-203 depends on VQ-201 & VQ-202 (per AGENTS.md), but all
+  three add migrations against the same parent (`006`/`007`/`008`). Current
+  vq-203 branch only has migrations up to 006 + VQ-203 (160ccbed24a5). Missing:
+  VQ-201 (007, 008) and VQ-202 (008, 009) fixes including super-admin RLS fix
+  (`tenant_id IS NULL` branch), `knowledge_base_version` column, document
+  category/quota/approval schema. Tests fail with 401 Unauthorized because
+  super-admin login broken without migration 007/009. See "Migration collisions"
+  section below.
+
 ## Worker queue design (resolved on `vq-203`)
 `dequeue_job` originally selected `FROM document_jobs WHERE status='queued'` with no
 tenant context, and the RLS policy hides every row from a no-tenant session, so the
@@ -144,11 +176,14 @@ function — both widen what a database identity can see to fix a scheduling pro
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.**
    Every RLS policy is inert during test and CI runs. Only the tests using the
    `app_db_session` / `app_db_conn` / `app_session` fixtures actually exercise RLS.
+   **Fixed on VQ-201, VQ-202 branches** via two-database-identity pattern (`ADMIN_DATABASE_URL` / `DATABASE_URL`).
 2. **Super Admin auth is broken under the real production identity (`vaultiq_app`).**
    The policies on `users` and `sessions` have no branch for `tenant_id IS NULL`,
    but VQ-101 AC3 requires platform accounts to have no tenant. `POST /auth/login`
    with `organisation_code=SUPER` returns 401, and inserting a super-admin session
    row is rejected outright.
+   **Fixed on VQ-202 branch** via migration `008_platform_access_superadmin` + app context
+   (`set_platform_context`, `apply_token_context`). Not on `vq-203`.
 3. **The `documents` RLS policy needs `NULLIF` as well as `missing_ok`.** Fixed on
    `vq-203`. This is recorded separately because the VQ-202 fix is incomplete in a
    way that is easy to repeat:
@@ -174,6 +209,27 @@ function — both widen what a database identity can see to fix a scheduling pro
 - VQ-201 / VQ-202 / VQ-203 all add a migration against the same parent (`007`/`008`).
   They cannot merge without renumbering or a merge revision. PR #10 is already
   `CONFLICTING`.
+
+## Migration collisions — settle the numbering before writing more branches
+VQ-201, VQ-202 and VQ-203 each add a migration against the same parent revision
+(`007`/`008`); PR #10 is already `CONFLICTING`. VQ-202 adds `cached_answers` and
+`document_versions`, VQ-204 changes the index layout, VQ-301 adds user-management
+tables, VQ-302 adds aggregates, VQ-304 adds `tenant_settings`, VQ-305 adds
+`feedback`. That is five more migrations colliding on the same parent. Deciding
+the revision-numbering scheme once now is far cheaper than renumbering nine
+branches at merge time. **No merging until all nine are complete; merge order to
+be decided then.**
+
+> **Current CI state (30 Sep 2026):**
+> - **VQ-201 (PR #10)**: 163 passed on CI (two-identity pattern applied, `vaultiq_app`)
+> - **VQ-202 (PR #11)**: 163 passed on CI (two-identity pattern applied, `vaultiq_app`)
+> - **VQ-203 (PR #13)**: **FAILING** — 54 failed, 74 passed. Root cause: migration
+>   collision. vq-203 branch only has migrations up to 006 + VQ-203 (160ccbed24a5).
+>   Missing VQ-201 (007, 008) and VQ-202 (008, 009) fixes including super-admin RLS
+>   fix (`tenant_id IS NULL` branch), `knowledge_base_version` column, document
+>   category/quota/approval schema. Tests fail with 401 Unauthorized because
+>   super-admin login broken without migration 007/009. Fix: create merge revision
+>   or rebase vq-203 on top of vq-202.
 
 
 
@@ -837,7 +893,7 @@ sprint is really five tasks.
 **Objective:** Uploaded documents are read, split and indexed in the background, per tenant, so a client uploading a large batch never slows down another client.
 **AC:** processing runs separately from the live Q&A service · each job belongs to one tenant and one document version, and a job for one tenant can never write results tagged for another · a cap limits one tenant's processing, others keep progressing · failures retried a limited number of times then reported with a human-readable reason · Client Admin sees queued/processing/ready/failed-with-reason · re-running the same version creates no duplicates · a document is only marked ready once everything needed to answer from it is fully stored.
 **Must prove:** two tenants each queue 20 documents and both progress · a worker crash mid-job leaves nothing partial visible · cross-tenant write impossible · live container: statuses over time for two tenants, and a kill-and-restart of the worker.
-**Status:** Gates 1–4 and 6 done — 158 tests green, worker proven live as a real process against `vaultiq_app`. See `VQ203_SELF_REVIEW.md`. Gate 6 gap: the worker is not in the Dockerfile, so "separate from the live service" holds for the code but not the deployed artifact.
+**Status:** Gates 1–4 and 6 done on branch — 158 tests green, worker proven live as a real process against `vaultiq_app`. See `VQ203_SELF_REVIEW.md`. Gate 6 gap: the worker is not in the Dockerfile, so "separate from the live service" holds for the code but not the deployed artifact. **CI failing** — 54 failed, 74 passed (see Migration collisions above).
 
 #### VQ-204 — Tenant-partitioned search index [BE][W3][P0][5pt]
 **Branch:** not started · **Depends on:** VQ-102
@@ -930,8 +986,9 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > `missing_ok` argument, unlike the other four — so a query against `documents`
 > with the setting unset raises an error instead of returning no rows.
 
-## Test Counts (two numbers, both real)
+## Test Counts (three numbers, all real)
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
+- **145** — BE_accurate branch (`d90833d`). Sprint 1+2 merged, includes CORS. `python -m pytest tests/ -q`, ~264s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
 
@@ -1039,7 +1096,7 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-202-approval-versioning`, `vq-203`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → build image (libmagic/poppler/tesseract) → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
@@ -1050,6 +1107,8 @@ alembic/
 > `vaultiq_app` role but never connects as it, so **every RLS policy is inert in
 > CI**. This is Known Defect #1. The fix is to split the identities: seed and
 > migrate as the superuser, run the application under test as `vaultiq_app`.
+> 
+> **Fixed on VQ-201, VQ-202, VQ-203 branches** via two-identity pattern (`ADMIN_DATABASE_URL` / `DATABASE_URL`). CI now runs tests as `vaultiq_app` with RLS enforced.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
