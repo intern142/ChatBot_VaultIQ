@@ -44,8 +44,19 @@ a step-up re-authentication, and tenant-scoped auditing across all of it — are
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | `/admin/users/{user_id}/password-reset` | Client Admin | Issue a one-time code; returns the code for on-screen hand-off |
+| POST | `/users/{user_id}/password-reset` | Client Admin | Issue a one-time code; returns the code for on-screen hand-off |
 | POST | `/auth/reset-password` | none | Consume a code and set a new password |
+
+> **Correction, 1 Oct 2026.** This table originally read
+> `/admin/users/{user_id}/password-reset`. The endpoint was built at
+> `/users/{user_id}/password-reset` instead, and the note was wrong.
+> `app/routes/admin.py` carries `require_roles("super_admin")` at router level,
+> so a Client Admin endpoint cannot live there at all. More to the point,
+> `test_tenant_lifecycle.py` asserts that every `/admin` operation in
+> `ROLE_MATRIX` is Super Admin only and that there are exactly six of them; a
+> tenant-scoped operation under `/admin` would have meant weakening that test or
+> deleting the invariant. `/admin` keeps meaning "platform operator". Nothing
+> else in the design changed.
 
 `/auth/forgot-password` from the withdrawn design is **not** built. An
 unauthenticated endpoint that returns a live password-reset code to its caller
@@ -121,7 +132,8 @@ a context that was set and then committed reverts to the empty string, and
 - `app/models/reset_code.py` — model
 - `app/schemas/auth.py` — `ResetPasswordRequest`
 - `app/schemas/user.py` — `PasswordResetIssued`
-- `app/routes/admin.py` — `POST /admin/users/{user_id}/password-reset`
+- `app/routes/users.py` — `POST /users/{user_id}/password-reset` (its own router,
+  `client_admin` only; deliberately not under `/admin`)
 - `app/routes/auth.py` — `POST /auth/reset-password`
 - `app/database.py` — `set_reset_code_context`
 - `app/auth/permissions.py` — matrix entries

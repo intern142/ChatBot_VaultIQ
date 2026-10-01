@@ -16,6 +16,7 @@ earlier draft of this story had the Super Admin issue the code; that was wrong
 """
 import asyncio
 import hashlib
+import time
 
 import pytest
 import pytest_asyncio
@@ -26,7 +27,7 @@ from app.models.audit_log import AuditLog
 from app.models.reset_code import ResetCode
 from app.models.session import Session
 from app.models.user import User
-from app.routes.auth import RESET_FAILURE_DETAIL
+from app.routes.auth import RESET_FAILURE_DETAIL, RESET_MIN_ELAPSED
 
 
 ISSUE = "/users/{user_id}/password-reset"
@@ -62,7 +63,7 @@ async def _stored_code_hash(db_engine, code: str) -> str:
 
 
 class TestIssueCode:
-    """POST /admin/users/{user_id}/password-reset"""
+    """POST /users/{user_id}/password-reset"""
 
     async def test_client_admin_issues_code_for_own_employee(
         self, async_client, tenant_a, token_a_admin
@@ -278,6 +279,46 @@ class TestConsumeCode:
         bodies = {r.json()["detail"] for r in responses}
         assert statuses == {401}, statuses
         assert bodies == {RESET_FAILURE_DETAIL}, bodies
+
+    async def test_failures_take_at_least_the_floor_time(
+        self, async_client, tenant_a, token_a_admin
+    ):
+        """AC: the failure paths must not be distinguishable by how fast they answer.
+
+        The endpoint sleeps out the remainder of a 200ms floor before rejecting,
+        so an unknown code and a spent code take comparable time rather than
+        letting a caller time its way to a list of live codes.
+        """
+        code = (
+            await _issue(
+                async_client, token_a_admin, tenant_a["employee"]["id"]
+            )
+        ).json()["reset_code"]
+        assert (await _consume(async_client, code)).status_code == 200
+
+        async def timed(payload: dict) -> float:
+            started = time.perf_counter()
+            resp = await async_client.post(CONSUME, json=payload)
+            elapsed = time.perf_counter() - started
+            assert resp.status_code == 401
+            return elapsed
+
+        used = await timed({"code": code, "new_password": "NewStrong1!"})
+        unknown = await timed({"code": "unknown-code", "new_password": "NewStrong1!"})
+        expired_shape = await timed({"code": "x" * 43, "new_password": "NewStrong1!"})
+
+        floor = RESET_MIN_ELAPSED.total_seconds()
+        for label, elapsed in (
+            ("used", used),
+            ("unknown", unknown),
+            ("malformed", expired_shape),
+        ):
+            assert elapsed >= floor, f"{label} answered in {elapsed:.3f}s, under the floor"
+
+        spread = max(used, unknown, expired_shape) - min(
+            used, unknown, expired_shape
+        )
+        assert spread < floor, f"failure timings diverged by {spread:.3f}s"
 
     async def test_empty_code_is_a_schema_error(self, async_client):
         resp = await async_client.post(
