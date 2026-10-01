@@ -36,6 +36,17 @@ ISOLATION_COVERED_ROUTES = {
     # VQ-301: Client Admin acting inside their own tenant. Cross-tenant issue
     # attempts are covered in test_password_reset.py::TestIssueCode.
     ("POST", "/users/{user_id}/password-reset"),
+
+    # VQ-301: the rest of user management. Every one of these is reached with a
+    # tenant A credential against a tenant B identifier in
+    # test_user_management.py, and every response body is checked for tenant B
+    # identifiers.
+    ("POST", "/users/invites"),
+    ("POST", "/users/import"),
+    ("POST", "/users/{user_id}/deactivate"),
+    ("POST", "/users/{user_id}/reactivate"),
+    ("PATCH", "/users/{user_id}/role"),
+    ("GET", "/users/audit"),
 }
 
 
