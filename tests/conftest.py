@@ -322,6 +322,19 @@ async def super_admin_token(db_conn, db_engine):
     )
 
 
+# Aliases for test compatibility
+@pytest.fixture
+def app_session(app_db_session):
+    """Alias for app_db_session - some tests use 'app_session' fixture name."""
+    return app_db_session
+
+
+@pytest.fixture
+def token_a(token_a_admin):
+    """Alias for token_a_admin - some tests use 'token_a' fixture name."""
+    return token_a_admin
+
+
 @pytest_asyncio.fixture(scope="function")
 async def doc_a(async_client, token_a_admin):
     """Upload a document for tenant A."""
