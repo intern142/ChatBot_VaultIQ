@@ -86,7 +86,7 @@ def db_conn():
 @pytest.fixture(scope="function")
 async def db_engine():
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )
@@ -147,12 +147,12 @@ def app_db_conn():
 async def app_db_session(app_db_engine):
     """Async session as vaultiq_app role - RLS enforced."""
     admin_engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )
     async with admin_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions, reset_codes CASCADE"))
+        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
     await admin_engine.dispose()
     session_factory = async_sessionmaker(
         app_db_engine,
