@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { login } from '../api/auth';
 import { useAuth } from '../context/AuthContext';
+import { useLoginLockout } from '../hooks/useLoginLockout';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Alert } from '../components/ui/Alert';
@@ -20,15 +21,45 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const lockout = useLoginLockout(form.organisation_code, form.email);
+  const [locked, setLocked] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    const check = () => setLocked(lockout.isLocked());
+    check();
+    const id = setInterval(check, 1000);
+    return () => clearInterval(id);
+  }, [form.organisation_code, form.email, lockout]);
+
+  useEffect(() => {
+    if (locked) {
+      const id = setInterval(() => setCountdown(lockout.remainingMs()), 1000);
+      setCountdown(lockout.remainingMs());
+      return () => clearInterval(id);
+    }
+  }, [locked, lockout]);
+
+  const formatCountdown = (ms: number): string => {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (locked) return;
     setError(null);
     setLoading(true);
     try {
       const data = await login(form);
+      lockout.recordSuccess();
       setAuth(data.access_token, data.role, data.tenant_id);
       navigate(from, { replace: true });
     } catch (err: any) {
+      if (err.status === 401) lockout.recordFailure();
       setError(err.message || 'Login failed');
     } finally {
       setLoading(false);
@@ -45,6 +76,11 @@ export default function LoginPage() {
         <h1 style={styles.title}>VaultIQ</h1>
         <p style={styles.subtitle}>Sign in to your organisation</p>
         {error && <Alert variant="error">{error}</Alert>}
+        {locked && (
+          <Alert variant="warning" style={styles.lockoutAlert}>
+            Account locked. Retry in {formatCountdown(countdown)}.
+          </Alert>
+        )}
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.field}>
             <label htmlFor="organisation_code" style={styles.label}>
@@ -58,6 +94,7 @@ export default function LoginPage() {
               placeholder="ACME or SUPER"
               required
               autoComplete="off"
+              disabled={locked}
             />
           </div>
           <div style={styles.field}>
@@ -73,6 +110,7 @@ export default function LoginPage() {
               placeholder="you@acme.com"
               required
               autoComplete="email"
+              disabled={locked}
             />
           </div>
           <div style={styles.field}>
@@ -88,9 +126,10 @@ export default function LoginPage() {
               placeholder="••••••••"
               required
               autoComplete="current-password"
+              disabled={locked}
             />
           </div>
-          <Button type="submit" loading={loading} style={styles.submit}>
+          <Button type="submit" loading={loading} disabled={locked} style={styles.submit}>
             Sign in
           </Button>
         </form>
@@ -156,5 +195,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#94a3b8',
     textAlign: 'center',
+  },
+  lockoutAlert: {
+    marginBottom: '16px',
   },
 };
