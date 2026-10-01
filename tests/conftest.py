@@ -37,7 +37,10 @@ settings = get_settings()
 # superuser silently disables every RLS policy and makes the whole tenant
 # isolation suite meaningless.
 
-ADMIN_DATABASE_URL = os.environ.get("ADMIN_DATABASE_URL", settings.DATABASE_URL)
+ADMIN_DATABASE_URL = os.environ.get(
+    "ADMIN_DATABASE_URL",
+    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
+)
 APP_DATABASE_URL = os.environ.get(
     "APP_DATABASE_URL",
     ADMIN_DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"),
