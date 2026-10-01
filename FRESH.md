@@ -1397,17 +1397,36 @@ tenants.
 
 ### Login security behaviour
 
-Every failed login path returns the identical body `401 "Invalid credentials"`
-and is padded to ~200 ms (`app/routes/auth.py:22`, enforced at lines 80-117). Do
-not add client-side "email not found" style messaging — it would defeat this.
+Every failed login path returns the identical body `401 "Invalid credentials"`.
+Do not add client-side "email not found" style messaging — it would defeat this.
 
 Account locks after **5** failed attempts for **15** minutes
 (`app/config.py:13-14`). A locked account also returns `401 "Invalid credentials"`,
 so the UI **cannot** distinguish lockout from wrong password. Show a neutral
 message and let the user retry.
 
-A suspended tenant with valid credentials returns **403 "Tenant suspended"** —
-this one *is* distinguishable and should be shown as a clear state.
+**Changed 2026-10-01 (backend fix on `FE_clone`, no API contract change — the UI
+needs no update).** Two things the UI previously could not rely on are now true:
+
+1. **Response time no longer reveals the outcome.** It used to be ~200 ms for a
+   locked account and an unknown email, versus ~700 ms for a wrong password,
+   because only the last path ran bcrypt. That let an attacker identify real
+   locked accounts without any error message. All failure paths now run one
+   bcrypt comparison, so they cost **~650–750 ms each** and are within ~90 ms of
+   each other. The `200 ms` `LOGIN_DELAY` (`app/routes/auth.py:22`) is still there
+   but is now only a floor, not the observable cost. **Budget ~1 s per login
+   attempt in any client-side timeout.**
+2. **A lapsed lock no longer re-locks immediately.** The attempt counter used to
+   stay at 5 when a lock expired, so the very next failure pushed it back over the
+   threshold and locked the account for another 15 minutes — meaning one typo
+   could re-lock you forever. After the 15 minutes elapse the account now gets a
+   fresh 5-try allowance.
+
+**Remaining known gap, deliberately not changed:** a *suspended tenant* with
+correct credentials returns **403 "Tenant suspended"** and short-circuits before
+bcrypt, so it is still fast and still distinguishable — by status code as well as
+by timing. That is intentional (VQ-103 AC4 requires the 403) and the UI should
+show it as a clear state. Every *other* failure is uniform.
 
 ---
 
@@ -1678,3 +1697,75 @@ at all, since the dialog already rendered `error`.
   open. Left alone to keep this change scoped to the invite button.
 - `TENANT1`'s client_admin would need deleting (a DB row, not code) to demo a
   clean invite → accept cycle.
+
+---
+
+### 2026-10-01 — login lockout fixes (backend, 2 files, +18 −4 and +15)
+
+Reported as "entering invalid credentials repeatedly doesn't lock the session for
+5–15 minutes". Investigated on the running server before changing anything.
+
+**The lockout was already working.** Measured against the live backend with a
+throwaway account: attempts 1–4 increment the counter, attempt 5 sets
+`locked_until = now + 15 min`, and the correct password is then refused. That part
+was never broken, and the reported symptom is explained by the next point.
+
+**Defect 1 — a lapsed lock re-locked on the very next failure.**
+`_check_lockout` (`app/routes/auth.py:25`) returned `False` once `locked_until`
+passed but never cleared `failed_login_attempts`. The counter stayed at
+`MAX_FAILED_ATTEMPTS` (5), so the first failure after expiry incremented it to 6,
+which is `>= 5`, which locked the account for another full 15 minutes — and the
+counter froze again. Net effect: once locked, an account could only be recovered
+by typing the password perfectly on the *first* try after every 15-minute window.
+Proven by expiring a real lock and making one wrong attempt: `attempts` went 5 → 6
+and `locked_until` was set again.
+
+Fix: when the lock has expired, clear the counter and `locked_until` together via
+the existing `_reset_failed_logins`. Only *after* expiry — a live lock still
+blocks. `_check_lockout` now takes `db`, since the reset is a write; it had one
+caller and no other importers.
+
+**Defect 2 — response time identified locked accounts.**
+VQ-105 AC2 requires a wrong org code, wrong email and wrong password to be
+indistinguishable "in the same time". They were not, because only the
+wrong-password path ran bcrypt:
+
+| path | before | after |
+|---|---|---|
+| wrong password | 657 ms | 734 ms |
+| unknown email | 223 ms | 746 ms |
+| unknown org | 199 ms | 659 ms |
+| locked account | 213 ms | 696 ms |
+| **spread** | **458 ms** | **87 ms** |
+
+A ~2.2x gap identified real, locked accounts with no error message at all. The
+`200 ms` `LOGIN_DELAY` only padded the pause; it never covered bcrypt, which
+dominates the response.
+
+Fix: `burn_password_verification_time()` in `app/auth/password.py` — one bcrypt
+comparison against a hash that matches no account, result discarded. Called on
+the locked path and the unknown-user path. `verify_password` itself is unchanged
+(pure insertion).
+
+**Not changed, deliberately:** the UI still shows one identical
+`401 "Invalid credentials"` for wrong-password, locked and unknown-user. Any
+"locked, retry in N minutes" message would confirm to an attacker that the
+account exists, breaking AC2 — and the screen is frontend anyway. Also unchanged:
+the suspended-tenant path still short-circuits before bcrypt and returns a
+distinguishable 403, which VQ-103 AC4 requires.
+
+**Verification.** 6 new tests in `tests/test_auth.py` (18 → 24). Full suite
+**151 passed** (145 pre-existing + 6) in 265 s. Each fix was proven to be caught:
+with Fix 1 reverted, both new expiry tests fail; with Fix 2 reverted, the parity
+test fails reporting a 458 ms spread. Live re-verified after restarting uvicorn —
+spread 87 ms, and after expiring a real lock one wrong attempt left
+`attempts=1, locked_until=None` with the correct password returning 200.
+
+**Frontend impact: none.** No status code, response body or endpoint changed. The
+only thing the UI should adjust is its own client-side timeout, since a failed
+login attempt now costs ~700 ms rather than ~200 ms.
+
+**Lesson for the approach note:** the existing `test_login_same_response_time`
+only compared three wrong-password attempts against each other — all three took
+the same bcrypt path, so it passed while the leak sat in the paths it never
+compared. A timing test has to compare *across* outcomes, not within one.
