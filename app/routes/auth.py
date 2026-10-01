@@ -118,6 +118,24 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
                 detail="Invalid credentials",
             )
 
+        # VQ-301 AC3: a deactivated account cannot get a new session.
+        #
+        # This is the same 401 with the same body and the same floor as the lockout
+        # above, and it sits before the password check on purpose. Not after: a
+        # deactivated user who still types the right password must not be told
+        # anything the wrong-password path would not tell them, and an attacker
+        # must not be able to distinguish "deactivated" from "wrong password" by
+        # the response or by how long it took. Reaching the bcrypt work first and
+        # rejecting after it would leak both.
+        if not user.is_active:
+            elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+            if elapsed < LOGIN_DELAY.total_seconds():
+                await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+
         if not verify_password(request.password, user.password_hash):
             await _record_failed_login(user, db)
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()

@@ -1,4 +1,4 @@
-"""VQ-107: Public invite acceptance endpoint.
+"""Invite acceptance.
 
 Accepting an invite is a bootstrap operation: the caller is not yet a tenant
 user and supplies only the invite code. The code is a high-entropy secret
@@ -6,6 +6,11 @@ user and supplies only the invite code. The code is a high-entropy secret
 exact code (app.invite_accept_code) rather than tenant context. All writes that
 follow run under the invite's tenant context so FORCE RLS on users / invites /
 audit_logs is satisfied even when the connection uses the vaultiq_app role.
+
+Written for VQ-107 (the first Client Admin of a tenant), extended by VQ-301 AC1
+(a Client Admin inviting staff). The only behavioural change is that the created
+user's role comes from `invite.role` rather than being hardcoded, and the
+one-Client-Admin refusal is scoped to invites that actually ask for that role.
 """
 from datetime import datetime, timezone
 
@@ -64,13 +69,24 @@ async def accept_invite(
     if not tenant or tenant.status != TenantStatus.active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired invite")
 
-    # Check if tenant already has a client_admin
-    result = await db.execute(
-        select(User).where(User.tenant_id == invite.tenant_id, User.role == "client_admin")
-    )
-    existing_admin = result.scalar_one_or_none()
-    if existing_admin:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant already has a Client Admin")
+    # VQ-107 AC3 is about bootstrapping: a tenant gets exactly one first Client
+    # Admin. VQ-301 AC1 adds the other case, an invite for an employee or for a
+    # second admin, and those must not be blocked by the bootstrap rule. So the
+    # check is scoped to the role the invite actually asks for. An invite for a
+    # client_admin still refuses when one exists, which is the VQ-107 behaviour,
+    # unchanged.
+    if invite.role == "client_admin":
+        result = await db.execute(
+            select(User).where(
+                User.tenant_id == invite.tenant_id, User.role == "client_admin"
+            )
+        )
+        existing_admin = result.scalar_one_or_none()
+        if existing_admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tenant already has a Client Admin",
+            )
 
     # Check if user with this email already exists for this tenant
     result = await db.execute(
@@ -87,7 +103,9 @@ async def accept_invite(
         tenant_id=invite.tenant_id,
         email=invite.email,
         password_hash=hash_password(request.password),
-        role="client_admin",
+        # VQ-301 AC1: the role the invite carries, not a hardcoded one.
+        role=invite.role,
+        is_active=True,
     )
     db.add(user)
     await db.flush()
@@ -102,7 +120,14 @@ async def accept_invite(
         action="accept_invite",
         target_type="user",
         target_id=user.id,
-        details={"email": user.email, "invite_id": str(invite.id)},
+        # role recorded because it is no longer implied by the action name. The
+        # invite code is deliberately not here: it is a live credential for the
+        # moment the user sets their password, and audit_logs is a long-lived table.
+        details={
+            "email": user.email,
+            "invite_id": str(invite.id),
+            "role": user.role,
+        },
     )
     db.add(audit)
 
