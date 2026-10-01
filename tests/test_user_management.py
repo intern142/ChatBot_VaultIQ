@@ -25,6 +25,7 @@ import hashlib
 import pytest
 from sqlalchemy import text
 
+from app.auth.password import hash_password
 from app.schemas.user import MAX_IMPORT_BYTES
 
 STRONG = "StrongPass1!"
@@ -67,6 +68,24 @@ async def _row(db_engine, table: str, where: str, *params):
             text(f"SELECT count(*) FROM {table} WHERE {where}"), params or {}
         )
         return result.scalar_one()
+
+
+async def _insert_user(db_engine, tenant_id, email: str, role: str = "employee"):
+    """Create a user directly, as the admin identity.
+
+    Used to reproduce a race the API cannot be asked to reproduce on demand: the
+    endpoint checks for an existing address and then inserts, so the only way to
+    make the insert lose is to put the row there in between. Runs on the admin
+    engine, which is not subject to RLS.
+    """
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO users (tenant_id, email, password_hash, role, is_active) "
+                "VALUES (:t, :e, :h, :r, true)"
+            ),
+            {"t": tenant_id, "e": email, "h": hash_password(STRONG), "r": role},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +267,59 @@ class TestInviteOneUser:
         actions = [row["action"] for row in resp.json()]
         assert "create_user_invite" in actions
 
+    async def test_accept_degrades_cleanly_when_the_address_is_taken(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """A race between the existence check and the insert must not be a 500.
+
+        The endpoint checks for an existing user and then inserts. That is
+        check-then-act, and /users/import can create the address in between - it
+        used to, before the import learned to refuse outstanding invites. The
+        unique constraint is the real authority, so the insert can lose the race
+        at any time and the answer must be a 4xx the person can act on.
+        """
+        invite = await _invite(async_client, token_a_admin, "racer@tenanta.com", "employee")
+        code = invite.json()["code"]
+
+        # Take the address behind the endpoint's back, the way a concurrent
+        # import or a second accept would.
+        await _insert_user(db_engine, tenant_a["id"], "racer@tenanta.com", "employee")
+
+        resp = await async_client.post(
+            "/invite/accept", json={"code": code, "password": "RacerOne1!"}
+        )
+        assert resp.status_code == 400, resp.text
+        assert "already exists" in resp.json()["detail"]
+        # Not a 500, and the failure is legible to the person holding the code.
+        assert resp.status_code < 500
+        # The code must not have been consumed by the failed attempt.
+        assert (
+            await _row(db_engine, "invites", "code = :c AND used_at IS NULL", {"c": code}) == 1
+        )
+
+    async def test_the_password_from_a_refused_accept_does_not_work(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """The person chose that password believing it took. It must not."""
+        invite = await _invite(async_client, token_a_admin, "ghost@tenanta.com", "employee")
+        code = invite.json()["code"]
+        await _insert_user(db_engine, tenant_a["id"], "ghost@tenanta.com", "employee")
+
+        resp = await async_client.post(
+            "/invite/accept", json={"code": code, "password": "GhostOne1!"}
+        )
+        assert resp.status_code == 400, resp.text
+
+        resp = await async_client.post(
+            "/auth/login",
+            json={
+                "organisation_code": tenant_a["short_code"],
+                "email": "ghost@tenanta.com",
+                "password": "GhostOne1!",
+            },
+        )
+        assert resp.status_code == 401, resp.text
+
 
 # ---------------------------------------------------------------------------
 # AC2 - CSV import
@@ -298,8 +370,50 @@ class TestCsvImport:
         assert invalid[0]["line"] == 3
         assert "role" in invalid[0]["reason"].lower()
 
+        # The two valid rows must not be reported as created. This report is the
+        # entire deliverable of the endpoint, so it is what the admin's screen
+        # renders: "created" here would put a green tick on two people who do
+        # not exist. Same silent-wrong failure as a 2xx on a refused import.
+        good = [r for r in body["rows"] if r["email"].startswith("good")]
+        assert len(good) == 2
+        assert all(r["status"] == "not_created" for r in good), body["rows"]
+        assert all(r["reason"] for r in good)
+        assert not [r for r in body["rows"] if r["status"] == "created"]
+
         assert await _row(db_engine, "users", "email LIKE 'good%'") == 0
         assert await _row(db_engine, "users", "email = 'broken@tenanta.com'") == 0
+
+    async def test_the_report_never_claims_a_row_the_database_does_not_have(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """Every 'created' row in any report must exist in `users`. No exceptions.
+
+        This is the invariant behind the per-row statuses, checked against the
+        table rather than against the other fields of the same response, because
+        the fields of the response were the thing that was wrong.
+        """
+        good = "email,role\nonly-good@tenanta.com,employee\n"
+        resp = await _csv(async_client, token_a_admin, good)
+        assert resp.status_code == 200, resp.text
+        claimed = [r["email"] for r in resp.json()["rows"] if r["status"] == "created"]
+        assert claimed
+        assert await _row(db_engine, "users", "email = ANY(:e)", {"e": claimed}) == len(claimed)
+
+        bad = "email,role\nclaimed@tenanta.com,employee\nnope@tenanta.com,wizard\n"
+        resp = await _csv(async_client, token_a_admin, bad)
+        assert resp.status_code == 400, resp.text
+        claimed = [r["email"] for r in resp.json()["rows"] if r["status"] == "created"]
+        assert claimed == []
+        assert await _row(db_engine, "users", "email = 'claimed@tenanta.com'") == 0
+
+    async def test_pending_never_reaches_the_client(
+        self, async_client, tenant_a, token_a_admin
+    ):
+        """"pending" is internal. It would tell the admin nothing about their file."""
+        for text in (self.GOOD, "email,role\na@tenanta.com,employee\nb@tenanta.com,wizard\n"):
+            resp = await _csv(async_client, token_a_admin, text)
+            assert resp.status_code in (200, 400), resp.text
+            assert all(r["status"] != "pending" for r in resp.json()["rows"]), resp.text
 
     async def test_report_covers_every_row_not_only_the_bad_ones(
         self, async_client, tenant_a, token_a_admin
@@ -332,7 +446,7 @@ class TestCsvImport:
 
     async def test_other_tenants_users_are_not_treated_as_duplicates(
         self, async_client, tenant_a, tenant_b, token_a_admin, db_engine
-        ):
+    ):
         """emp@b.com must be importable into A.
 
         If B's rows were visible the row would be rejected as a duplicate, and
@@ -346,6 +460,61 @@ class TestCsvImport:
         assert await _row(
             db_engine, "users", "email = 'emp@b.com' AND tenant_id = :t", {"t": tenant_a["id"]}
         ) == 1
+
+    async def test_an_address_with_an_outstanding_invite_is_invalid(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """Invite then import the same address must not collide.
+
+        Found at Gate 6: the import only read the users table, so it created a
+        user for an address that already had a live invite, and the invite then
+        blew up /invite/accept with a 500.
+        """
+        invite = await _invite(async_client, token_a_admin, "pending@tenanta.com", "employee")
+        assert invite.status_code == 201, invite.text
+
+        csv_text = "email,role\npending@tenanta.com,employee\nfresh@tenanta.com,employee\n"
+        resp = await _csv(async_client, token_a_admin, csv_text)
+        assert resp.status_code == 400, resp.text
+        body = resp.json()
+        assert body["applied"] is False
+        reason = [r for r in body["rows"] if r["email"] == "pending@tenanta.com"][0]["reason"]
+        assert "invite" in reason.lower()
+        # The whole file is refused, including the row that had no problem.
+        assert await _row(db_engine, "users", "email = 'pending@tenanta.com'") == 0
+        assert await _row(db_engine, "users", "email = 'fresh@tenanta.com'") == 0
+
+    async def test_the_outstanding_invite_can_still_be_accepted(
+        self, async_client, tenant_a, token_a_admin
+    ):
+        """After the import refuses the row, the invite must still work."""
+        invite = await _invite(async_client, token_a_admin, "pending2@tenanta.com", "employee")
+        code = invite.json()["code"]
+
+        resp = await _csv(
+            async_client, token_a_admin, "email,role\npending2@tenanta.com,employee\n"
+        )
+        assert resp.status_code == 400, resp.text
+
+        resp = await async_client.post(
+            "/invite/accept", json={"code": code, "password": "PendingOne1!"}
+        )
+        assert resp.status_code == 200, resp.text
+
+    async def test_an_expired_invite_does_not_block_an_import(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """Only a *live* invite conflicts. A spent or lapsed one must not."""
+        invite = await _invite(async_client, token_a_admin, "used@tenanta.com", "employee")
+        code = invite.json()["code"]
+        resp = await async_client.post(
+            "/invite/accept", json={"code": code, "password": "UsedOne1!!"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        resp = await _csv(async_client, token_a_admin, "email,role\nused@tenanta.com,employee\n")
+        assert resp.status_code == 400, resp.text
+        assert "already exists" in resp.json()["rows"][0]["reason"]
 
     @pytest.mark.parametrize(
         "csv_text,fragment",

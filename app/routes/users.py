@@ -95,6 +95,13 @@ settings = get_settings()
 # mean a plaintext credential store that we invented and then had to secure.
 UNUSABLE_PASSWORD_PREFIX = "unusable:"
 
+# Per-row report statuses. A row that validated is PENDING until the import's
+# outcome is known, because "created" is a claim about the users table and the
+# whole point of the all-or-nothing rule is that a refused import writes nothing.
+PENDING = "pending"
+CREATED = "created"
+NOT_CREATED = "not_created"
+
 
 def generate_reset_code() -> str:
     """32 bytes -> 43 char base64url, same shape as the invite codes."""
@@ -345,6 +352,24 @@ async def import_users(
     )
     existing_emails = {e.lower() for e in existing_result.scalars().all()}
 
+    now = datetime.now(timezone.utc)
+
+    # Outstanding invites, for the same reason and with the same scoping.
+    #
+    # Without this the two ways of adding a person can collide: invite someone,
+    # then import a file that also lists them, and the invite can no longer be
+    # accepted because the address is taken. Found at Gate 6 as a 500 on
+    # /invite/accept; refusing the row here is the actual fix, and it gives the
+    # admin a reason they can act on instead of a collision they cannot see.
+    pending_result = await db.execute(
+        select(Invite.email).where(
+            Invite.tenant_id == current_user.tenant_id,
+            Invite.used_at.is_(None),
+            Invite.expires_at > now,
+        )
+    )
+    pending_emails = {e.lower() for e in pending_result.scalars().all()}
+
     for line, email, role in rows:
         normalised = normalise_email(email)
         if not normalised:
@@ -357,15 +382,29 @@ async def import_users(
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="Duplicate email within this file"))
         elif normalised in existing_emails:
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="A user with this email already exists in your organisation"))
+        elif normalised in pending_emails:
+            results.append(ImportRowResult(line=line, email=email, status="invalid", reason="An invite is already outstanding for this email"))
         else:
             seen.add(normalised)
             to_create.append((line, normalised, role))
-            results.append(ImportRowResult(line=line, email=email, status="created"))
+            # "pending", not "created": at this point nothing has been written, and
+            # this import may still be refused by a later row. The final status is
+            # decided below, once the outcome is known.
+            results.append(ImportRowResult(line=line, email=email, status=PENDING))
 
     invalid_count = sum(1 for r in results if r.status == "invalid")
     if invalid_count:
         # Nothing has been written at this point, so returning here IS the
         # all-or-nothing guarantee. No rollback needed because no statement ran.
+        #
+        # The rows that validated have to be downgraded here. Leaving them as
+        # "created" would hand the caller a report saying users exist when the
+        # users table is untouched - and this report is the entire deliverable of
+        # the endpoint, so it is what the frontend renders.
+        for r in results:
+            if r.status == PENDING:
+                r.status = NOT_CREATED
+                r.reason = "Not imported, because another row in this file is invalid"
         response.status_code = status.HTTP_400_BAD_REQUEST
         return ImportResponse(
             applied=False,
@@ -425,6 +464,10 @@ async def import_users(
     )
 
     await db.commit()
+
+    for r in results:
+        if r.status == PENDING:
+            r.status = CREATED
 
     return ImportResponse(
         applied=True,

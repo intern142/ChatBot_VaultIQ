@@ -212,6 +212,7 @@ async def tenant_a(db_engine):
         """), {"sid1": admin_sid, "uid1": admin_uid, "sid2": emp_sid, "uid2": emp_uid, "tid": tid})
     return {
         "id": tid,
+        "short_code": "TENANT_A",
         "client_admin": {"id": admin_uid, "email": users[0]["email"], "role": users[0]["role"], "session_id": admin_sid},
         "employee": {"id": emp_uid, "email": users[1]["email"], "role": users[1]["role"], "session_id": emp_sid},
     }
@@ -246,6 +247,7 @@ async def tenant_b(db_engine):
         """), {"sid1": admin_sid, "uid1": admin_uid, "sid2": emp_sid, "uid2": emp_uid, "tid": tid})
     return {
         "id": tid,
+        "short_code": "TENANT_B",
         "client_admin": {"id": admin_uid, "email": users[0]["email"], "role": users[0]["role"], "session_id": admin_sid},
         "employee": {"id": emp_uid, "email": users[1]["email"], "role": users[1]["role"], "session_id": emp_sid},
     }

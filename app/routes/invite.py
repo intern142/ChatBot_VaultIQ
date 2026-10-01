@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, set_tenant_context
@@ -108,7 +109,23 @@ async def accept_invite(
         is_active=True,
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # The unique (tenant_id, email) constraint is the real authority, and the
+        # existence check above is a check-then-act that another writer can beat.
+        # The reachable case is a CSV import that created this address while the
+        # invite was outstanding: /users/import only reads the users table, so it
+        # cannot see the pending invite. Without this the caller gets a 500 and
+        # the password they just chose is silently discarded.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A user with this email already exists. If that is you, use the "
+                "password-reset flow instead of the invite."
+            ),
+        )
 
     invite.used_at = datetime.now(timezone.utc)
     await db.flush()

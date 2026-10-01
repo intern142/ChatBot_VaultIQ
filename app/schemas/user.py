@@ -108,7 +108,13 @@ MAX_IMPORT_BYTES = 1_048_576
 class ImportRowResult(BaseModel):
     line: int
     email: str
-    status: str  # "created" | "invalid"
+    # "created" | "not_created" | "invalid"
+    #
+    # "not_created" exists because a valid row in a refused import is NOT created.
+    # Marking it "created" while the response carries created_count=0 would make
+    # the report claim users exist that do not, which is the same silent-wrong
+    # outcome as returning 2xx for a refused import.
+    status: str
     reason: Optional[str] = None
 
 
