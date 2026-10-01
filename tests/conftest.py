@@ -22,9 +22,30 @@ from app.main import app
 
 settings = get_settings()
 
+# Two distinct database identities are used by the test suite:
+#
+#   ADMIN_DATABASE_URL - the migration/DDL identity (local dev: the `vaultiq`
+#       superuser). Used ONLY to truncate and seed fixtures. It has BYPASSRLS
+#       so it can see every row, which is exactly what we do not want the
+#       application to be able to do.
+#
+#   APP_DATABASE_URL - the identity the application under test actually uses.
+#       Defaults to `vaultiq_app`, which is NOBYPASSRLS, so every request the
+#       suite makes has row-level security genuinely enforced.
+#
+# The default must be the NOBYPASSRLS role. Running the suite against the
+# superuser silently disables every RLS policy and makes the whole tenant
+# isolation suite meaningless.
+#
+# In CI (GitHub Actions), these are the exact URLs used by the workflow.
+# Local development can override by editing this file or setting env vars
+# ADMIN_DATABASE_URL / APP_DATABASE_URL before running pytest.
+
+ADMIN_DATABASE_URL = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+APP_DATABASE_URL = "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
 
 test_app_engine = create_async_engine(
-    settings.DATABASE_URL,
+    APP_DATABASE_URL,
     echo=False,
     poolclass=NullPool,
 )
@@ -300,6 +321,19 @@ async def super_admin_token(db_conn, db_engine):
         tenant_id=None,
         session_id=sid,
     )
+
+
+# Aliases for test compatibility
+@pytest.fixture
+def app_session(app_db_session):
+    """Alias for app_db_session - some tests use 'app_session' fixture name."""
+    return app_db_session
+
+
+@pytest.fixture
+def token_a(token_a_admin):
+    """Alias for token_a_admin - some tests use 'token_a' fixture name."""
+    return token_a_admin
 
 
 @pytest_asyncio.fixture(scope="function")

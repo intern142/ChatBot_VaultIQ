@@ -107,6 +107,10 @@ async def accept_invite(
     db.add(audit)
 
     await db.commit()
+    # Re-set tenant context before refresh; commit ended the transaction
+    # and with it the SET LOCAL context. The user has tenant_id so the
+    # tenant_isolation policy requires the context to be present.
+    await set_tenant_context(db, str(invite.tenant_id))
     await db.refresh(user)
 
     return InviteAcceptResponse(
