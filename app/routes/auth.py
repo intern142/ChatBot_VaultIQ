@@ -9,12 +9,7 @@ from app.config import get_settings
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.session import Session
-from app.auth.password import (
-    verify_password,
-    hash_password,
-    validate_password_strength,
-    burn_password_verification_time,
-)
+from app.auth.password import verify_password, hash_password, validate_password_strength
 from app.auth.jwt import create_access_token, decode_token
 from app.auth.dependencies import get_current_user
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, MessageResponse
@@ -27,16 +22,9 @@ security = HTTPBearer()
 LOGIN_DELAY = timedelta(milliseconds=200)
 
 
-async def _check_lockout(user: User, db: AsyncSession) -> bool:
-    if user.locked_until is None:
-        return False
-    if user.locked_until > datetime.now(timezone.utc):
+async def _check_lockout(user: User) -> bool:
+    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         return True
-    # The lock has expired. Clear it and the stale counter together. Without this
-    # the counter still reads MAX_FAILED_ATTEMPTS, so the first failure after the
-    # lock expires pushes it straight back over the threshold and the account is
-    # locked again for another full period.
-    await _reset_failed_logins(user, db)
     return False
 
 
@@ -97,9 +85,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
                     detail="Tenant suspended",
                 )
 
-        locked = await _check_lockout(user, db)
+        locked = await _check_lockout(user)
         if locked:
-            burn_password_verification_time(request.password)
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             if elapsed < LOGIN_DELAY.total_seconds():
                 await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -121,7 +108,6 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         await _reset_failed_logins(user, db)
 
     else:
-        burn_password_verification_time(request.password)
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         if elapsed < LOGIN_DELAY.total_seconds():
             await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
