@@ -52,6 +52,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     # the client), and it is not under /admin so the VQ-107 invariant that every
     # /admin operation is Super Admin only stays true without an exception.
     ("POST", "/users/{user_id}/password-reset"): {"client_admin"},
+    ("POST", "/users/invites"): {"client_admin"},
+    ("POST", "/users/import"): {"client_admin"},
+    ("POST", "/users/{user_id}/deactivate"): {"client_admin"},
+    ("POST", "/users/{user_id}/reactivate"): {"client_admin"},
+    ("PATCH", "/users/{user_id}/role"): {"client_admin"},
+    ("GET", "/users/audit"): {"client_admin"},
 }
 
 
