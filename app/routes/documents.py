@@ -9,7 +9,6 @@ from app.database import get_db
 from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
 from app.models.document import Document
-from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.document import (
     DocumentResponse,
@@ -35,21 +34,11 @@ ALLOWED_MIME_TYPES = {
     "text/csv",
 }
 
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 def validate_file(file: UploadFile) -> None:
-    # Determine file size: use header if available, else read stream
-    if file.size is not None:
-        size = file.size
-    else:
-        # Read the stream to determine size, then seek back
-        current_pos = file.file.tell()
-        file.file.seek(0, 2)  # Seek to end
-        size = file.file.tell()
-        file.file.seek(current_pos)  # Restore position
-    
-    if size > MAX_FILE_SIZE:
+    if file.size and file.size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024*1024)}MB"
@@ -77,41 +66,6 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename is required"
-        )
-
-    # Get tenant quota (model default is 20 MB; treat NULL as 20)
-    tenant_result = await db.execute(
-        select(Tenant).where(Tenant.id == uuid.UUID(tenant_id))
-    )
-    tenant = tenant_result.scalar_one_or_none()
-    quota_mb = tenant.storage_quota_mb if tenant and tenant.storage_quota_mb else 20
-    quota_bytes = quota_mb * 1024 * 1024
-
-    # Check current usage
-    usage_result = await db.execute(
-        select(func.coalesce(func.sum(Document.size_bytes), 0)).where(
-            Document.tenant_id == uuid.UUID(tenant_id)
-        )
-    )
-    current_usage = usage_result.scalar() or 0
-
-    # Determine incoming file size (read stream if header not present)
-    if file.size is not None:
-        incoming_size = file.size
-    else:
-        current_pos = file.file.tell()
-        file.file.seek(0, 2)
-        incoming_size = file.file.tell()
-        file.file.seek(current_pos)
-
-    if current_usage + incoming_size > quota_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"Storage quota exceeded. Limit: {quota_mb} MB, "
-                f"used: {round(current_usage / (1024*1024), 2)} MB, "
-                f"file: {round(incoming_size / (1024*1024), 2)} MB"
-            )
         )
 
     document_id = uuid.uuid4()

@@ -22,7 +22,7 @@ class Tenant(Base):
         nullable=False,
         default="active",
     )
-    storage_quota_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    storage_quota_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=2048)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
