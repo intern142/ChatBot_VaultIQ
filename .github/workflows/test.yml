@@ -51,7 +51,7 @@ jobs:
         run: |
           alembic upgrade head
 
-      - name: Grant app user permissions
+- name: Grant app user permissions
         env:
           PGPASSWORD: vaultiq_secret
         run: |
