@@ -37,17 +37,12 @@ settings = get_settings()
 # superuser silently disables every RLS policy and makes the whole tenant
 # isolation suite meaningless.
 #
-# In CI, these are the exact URLs used by the GitHub Actions workflow.
-# Local development can override via ADMIN_DATABASE_URL / APP_DATABASE_URL env vars.
+# In CI (GitHub Actions), these are the exact URLs used by the workflow.
+# Local development can override by editing this file or setting env vars
+# ADMIN_DATABASE_URL / APP_DATABASE_URL before running pytest.
 
-ADMIN_DATABASE_URL = os.environ.get(
-    "ADMIN_DATABASE_URL",
-    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
-)
-APP_DATABASE_URL = os.environ.get(
-    "APP_DATABASE_URL",
-    "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq",
-)
+ADMIN_DATABASE_URL = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+APP_DATABASE_URL = "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
 
 test_app_engine = create_async_engine(
     APP_DATABASE_URL,
