@@ -92,7 +92,7 @@ def db_conn():
 @pytest.fixture(scope="function")
 async def db_engine():
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )
@@ -131,7 +131,7 @@ async def app_db_engine():
 async def app_db_session(app_db_engine):
     """Async session as vaultiq_app role - RLS enforced."""
     admin_engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )
