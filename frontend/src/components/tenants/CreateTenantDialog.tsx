@@ -88,9 +88,9 @@ export function CreateTenantDialog({ open, onClose, onSuccess }: CreateTenantDia
         </form>
         <div style={styles.footer}>
           <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button onClick={(e) => { e.preventDefault(); document.querySelector('form')?.dispatchEvent(new Event('submit')); }} loading={loading} disabled={loading}>
-            Create
-          </Button>
+<Button type="submit" loading={loading} disabled={loading}>
+  Create
+</Button>
         </div>
       </div>
     </div>
