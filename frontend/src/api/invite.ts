@@ -6,5 +6,4 @@ export const acceptInvite = (code: string, password: string) =>
     method: 'POST',
     body: JSON.stringify({ code, password }),
     skipAuth: true,
-    skipRefreshOn401: true,
   });

@@ -6,7 +6,6 @@ export const login = (body: { organisation_code: string; email: string; password
     method: 'POST',
     body: JSON.stringify(body),
     skipAuth: true,
-    skipRefreshOn401: true,
   }).then((data) => {
     setAuth(data.access_token, data.role, data.tenant_id);
     return data;
