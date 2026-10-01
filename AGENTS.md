@@ -108,14 +108,15 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- **Current branch: `vq-301-password-reset`** (remote `c697fc7`, pushed)
-- **PR #14 open** against main for AC4 only.
-- **Current task: VQ-301 — User management for Client Admins.** Only **AC4**
-  (password reset) is in scope on this branch. Gates 1-4 and 6 done. **Gate 5**
-  (code review) and **Gate 7** (demo) outstanding.
-- **Full suite locally: 190 passed, 0 failed** (163 pre-existing + 27 new).
-- **CI green.** Run `36827084819` and `36829105674`, both `190 passed`, with the
-  application running as `vaultiq_app` (NOBYPASSRLS).
+- **Current branch: `vq-301-password-reset`** (remote `80bd6e7`, pushed)
+- **PR #14 open** against main for all six ACs.
+- **Current task: VQ-301 — User management for Client Admins.** **All six ACs
+  complete:** AC1 (invite one), AC2 (CSV import), AC3 (deactivate/reactivate),
+  AC4 (password reset), AC5 (role change + step-up), AC6 (tenant audit).
+  Gates 1-4 and 6 done. **Gate 5** (code review) and **Gate 7** (demo) outstanding.
+- **Full suite locally: 286 passed, 0 failed** (163 pre-existing + 27 AC4 + 96 new).
+- **CI green.** Latest run on pushed commit `80bd6e7`, app running as `vaultiq_app`
+  (`rolbypassrls = f`).
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110.
 - Unmerged Sprint 3 work: VQ-201 (PR #10), VQ-202 (PR #11), VQ-203 (PR #13).
 - `AGENTS_BE.md` is **not** on this branch; it lives only on `BE_accurate` at
@@ -190,7 +191,9 @@ was corrected at `7101cde` and the code written against it was **reverted, not
 patched** — its `/auth/forgot-password` was unauthenticated and returned a live
 reset code to any caller, which is a token-disclosure hole.
 
-## VQ-301 — what was built (AC4 only)
+## VQ-301 — what was built (all six ACs)
+
+### AC4 — Password reset (previously documented)
 - `POST /users/{user_id}/password-reset` — Client Admin only, returns the code
   for on-screen hand-off. No tenant filter in the query: `get_current_user`
   already set context from the verified token, so RLS does the scoping and
@@ -220,13 +223,127 @@ reset code to any caller, which is a token-disclosure hole.
 - Migration round trip verified: downgrade drops the table, upgrade restores
   both policies with `reset_code_lookup` still SELECT-only.
 
-## VQ-301 — the other five acceptance criteria are NOT started
+### AC1 — Invite one user
+- `POST /users/invites` — Client Admin only. Body: `{email, role, expires_in_hours?}`.
+  Role restricted to `employee` | `client_admin` (schema + DB CHECK constraint
+  `ck_invites_role_is_tenant_role`). Returns the 43-char code for hand-off.
+- `POST /invite/accept` — public, consumes code + password, creates user at the
+  invite's role, marks invite used. Rejects replay, expiry, cross-tenant.
+- Invite binds to the issuing tenant only; cross-tenant duplicate email is allowed
+  (per-tenant uniqueness, not global).
+- Employee and Super Admin denied (403).
 
-Invite one user · CSV import with validate-all-then-apply-or-none and a
-row-by-row report · deactivate (ends sessions immediately) and reactivate ·
-role change Employee↔Client Admin behind a step-up re-authentication ·
-tenant-scoped auditing across all of the above. Only password reset is done.
-This branch does not complete VQ-301.
+### AC2 — CSV import (all-or-nothing, row-by-row report)
+- `POST /users/import` — Client Admin only. Multipart `file` with `email,role` CSV.
+- Validates everything before any write; any invalid row → **400** with full
+  per-row report, zero writes. Report includes `line`, `email`, `status`
+  (`created` | `not_created` | `invalid`), `reason`.
+- 500-row cap, 1 MiB byte cap (read one byte past cap).
+- Imported users get unusable password hash; must use AC4 reset to log in.
+- Outstanding invite for same address → row refused with clear reason.
+- Employee and Super Admin denied (403).
+
+### AC3 — Deactivate / reactivate
+- `POST /users/{id}/deactivate` — sets `is_active=false`, revokes all sessions
+  in one transaction. Token that worked one call earlier → 401 next call.
+- `POST /users/{id}/reactivate` — sets `is_active=true`. Does not restore
+  revoked sessions. Idempotent (already active → 400).
+- Deactivated login returns 401 byte-identical to wrong-password 401.
+- Self-target refused (400), cross-tenant refused (404), employee/Super Admin
+  denied (403).
+
+### AC5 — Role change behind step-up
+- `PATCH /users/{id}/role` — Client Admin only. Body: `{role, current_password}`.
+- Step-up verifies caller's password **before** target lookup (401 for both
+  unknown id and known id with wrong password).
+- Rejects self-target (400), `super_admin` target (422), cross-tenant (401).
+- On success: target role updated, all target sessions revoked (old token 401
+  immediately).
+- Employee and Super Admin denied (403).
+
+### AC6 — Tenant-scoped audit trail
+- `GET /users/audit` — Client Admin only. Returns all user-management actions
+  for the caller's tenant only. No tenant parameter accepted (ignored if passed).
+- Actions: `create_user_invite`, `accept_invite`, `import_users`,
+  `deactivate_user`, `reactivate_user`, `change_user_role`.
+- Each row: `actor_user_id`, `actor_role`, `action`, `target_type`, `target_id`,
+  `details` (emails, roles, never credentials), `created_at`.
+- `accept_invite` carries `actor_role: "system"`, no actor user.
+- Zero credentials in trail (no invite codes, no reset codes, no password hashes).
+
+## VQ-301 — migration `c4d81f0a7e26` (on top of `27905f137fd4`)
+- `users.is_active BOOLEAN NOT NULL DEFAULT true`
+- `invites.role VARCHAR(50) NOT NULL DEFAULT 'client_admin'`
+- DB CHECK constraint `ck_invites_role_is_tenant_role` restricts invite role to
+  `employee` | `client_admin` — `super_admin` not insertable by any writer.
+- Server defaults retained deliberately for populated-DB upgrades, raw-SQL
+  fixtures, and backward-compatible VQ-107 behaviour.
+
+## VQ-301 — Gate 6 evidence (AC1, AC2, AC3, AC5, AC6)
+Rebuilt image `vaultiq-vq301b:test` from this branch (`80bd6e7`), fresh Postgres
+(`vq301b-gate6-db`, internal network, no host port), `alembic upgrade head` to
+`c4d81f0a7e26`, app in `vq301b-gate6-api` published on **127.0.0.1:8011** running
+as **`vaultiq_app`** (`rolbypassrls = f`, confirmed by psql). Two tenants built
+through the product itself: SUPER login → `POST /admin/tenants` G6ALPHA + G6BRAVO
+→ invite → `POST /invite/accept` → both Client Admins log in.
+
+| # | Step | Result |
+|---|------|--------|
+| 1 | `POST /users/invites` role=employee | **201**, 43-char code |
+| 2 | `POST /users/invites` role=super_admin | **422** |
+| 3 | `POST /invite/accept` replay code | **400** |
+| 4 | `POST /users/invites` duplicate email | **409** |
+| 5 | `POST /users/invites` as employee | **403** |
+| 6 | `POST /users/invites` as super_admin | **403** |
+| 7 | `POST /users/import` valid 3-row | **200**, applied=true, created=3, all `status: created` |
+| 8 | `POST /users/import` 1 invalid row | **400**, applied=false, created=0, valid rows `status: not_created` |
+| 9 | `POST /users/import` 501 rows | **400** |
+| 10 | `POST /users/import` >1 MiB | **400** |
+| 11 | `POST /users/import` as employee | **403** |
+| 12 | `POST /users/import` address in BRAVO | **200**, applied=true, created=1 (per-tenant uniqueness) |
+| 13 | `PATCH /users/{id}/role` no password | **422** |
+| 14 | `PATCH /users/{id}/role` wrong password | **401** (before target lookup) |
+| 15 | `PATCH /users/{id}/role` random UUID target | **401** (before lookup) |
+| 16 | `PATCH /users/{id}/role` to super_admin | **422** |
+| 17 | `PATCH /users/{id}/role` self-target | **400** |
+| 18 | `PATCH /users/{id}/role` cross-tenant | **401** |
+| 19 | `PATCH /users/{id}/role` correct | **200**, sessions revoked, old token **401** |
+| 20 | `POST /users/{id}/deactivate` self | **400** |
+| 21 | `POST /users/{id}/deactivate` cross-tenant | **404** |
+| 22 | `POST /users/{id}/deactivate` valid | **200**, same token next request **401** |
+| 23 | Login while deactivated | **401**, body **byte-identical** to wrong-password |
+| 24 | `POST /users/{id}/reactivate` | **200**, old token stays **401** |
+| 25 | Login after reactivate | **200** |
+| 26 | `GET /users/audit` ALPHA | **200**, 20 rows, 0 BRAVO actions |
+| 27 | `GET /users/audit` BRAVO | **200**, 3 rows, 0 ALPHA user-mgmt actions |
+| 28 | `GET /users/audit?tenant_id=BRAVO` | **200**, same rows (param ignored) |
+| 29 | Audit trail contains no invite/reset codes | Verified |
+| 30 | Audit trail contains no bcrypt/unusable markers | Verified |
+
+**Two defects found at Gate 6 and fixed before this push:**
+
+1. **Import report lied** — valid rows in a refused import were marked
+   `status: created` while `created_count: 0` and nothing was written.
+   A frontend rendering that row-by-row report would show a green tick on
+   users who don't exist — the exact silent-wrong failure rejected for the
+   status code in Gate 4. Fixed: rows start `pending`, become `created`
+   or `not_created` based on actual outcome. Report now honest.
+
+2. **500 on `POST /invite/accept`** — invite someone → import a CSV with
+   the same address → import only read the `users` table, so it took the
+   address → invite then blew up with 500 and silently discarded the
+   password the person had just chosen. Reproduced in 4 HTTP requests.
+   Fixed at both ends:
+   - Import now refuses addresses with a live invite (clear per-row reason).
+   - Accept path handles `IntegrityError` gracefully → 400 with message
+     pointing at the reset flow. No 500, password not silently lost.
+
+**Database, as `vaultiq_app`:**
+- No tenant context → `SELECT count(*) FROM users` = **0**.
+- `SET LOCAL app.current_tenant = G6ALPHA` → 8 own rows, **0** G6BRAVO rows,
+  2 users visible.
+- `ck_invites_role_is_tenant_role` verified: `INSERT ... 'super_admin'`
+  → **ERROR: check constraint violated**; `INSERT ... 'employee'` → **OK**.
 
 ## Blockers
 - **Resolved — CI was red on this branch** (run `36747747979`): `130 passed, 59
