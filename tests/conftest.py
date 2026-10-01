@@ -24,30 +24,24 @@ settings = get_settings()
 
 # Two distinct database identities are used by the test suite:
 #
-#   ADMIN_DATABASE_URL - the migration/DDL identity (local dev: the `vaultiq`
-#       superuser). Used ONLY to truncate and seed fixtures. It has BYPASSRLS
-#       so it can see every row, which is exactly what we do not want the
-#       application to be able to do.
+#   ADMIN_DATABASE_URL - the migration/DDL identity (the `vaultiq` superuser).
+#       Used ONLY to truncate and seed fixtures. It has BYPASSRLS so it can see
+#       every row, which is exactly what we do not want the application to do.
 #
 #   APP_DATABASE_URL - the identity the application under test actually uses.
-#       Defaults to `vaultiq_app`, which is NOBYPASSRLS, so every request the
-#       suite makes has row-level security genuinely enforced.
+#       This is `vaultiq_app`, which is NOBYPASSRLS, so every request the suite
+#       makes has row-level security genuinely enforced.
 #
 # The default must be the NOBYPASSRLS role. Running the suite against the
 # superuser silently disables every RLS policy and makes the whole tenant
 # isolation suite meaningless.
 #
-# In CI, these are the exact URLs used by the GitHub Actions workflow.
-# Local development can override via ADMIN_DATABASE_URL / APP_DATABASE_URL env vars.
+# In CI (GitHub Actions), these are the exact URLs used by the workflow.
+# Local development can override by editing this file or setting env vars
+# ADMIN_DATABASE_URL / APP_DATABASE_URL before running pytest.
 
-ADMIN_DATABASE_URL = os.environ.get(
-    "ADMIN_DATABASE_URL",
-    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
-)
-APP_DATABASE_URL = os.environ.get(
-    "APP_DATABASE_URL",
-    "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq",
-)
+ADMIN_DATABASE_URL = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+APP_DATABASE_URL = "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
 
 test_app_engine = create_async_engine(
     APP_DATABASE_URL,
