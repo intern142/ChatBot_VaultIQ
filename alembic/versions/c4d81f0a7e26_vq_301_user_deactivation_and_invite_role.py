@@ -41,18 +41,24 @@ invites.role
     column means client_admin, which is what it meant before.
 
     VARCHAR, not the `user_role` enum, for the same reason `audit_logs.actor_role`
-    is text (migration 004). This column holds exactly two values by construction
-    (the endpoint accepts employee or client_admin and nothing else), and adding a
-    value to a live Postgres enum requires ALTER TYPE outside a transaction, which
-    Alembic will not give us inside a migration. The application-level restriction
-    lives in the schema validation in app/schemas/user.py, which rejects anything
-    else before a row is written.
+    is text (migration 004). Adding a value to a live Postgres enum requires ALTER
+    TYPE outside a transaction, which Alembic will not give us inside a migration.
+    Choosing text does leave the column free to hold anything, so the two permitted
+    values are pinned by a CHECK constraint in the same migration. The application
+    repeats the check in app/schemas/user.py because a 422 naming the bad role is a
+    better answer than an integrity error, and because super_admin must be refused
+    before anything is written.
 
 No RLS changes. Both columns live on tables that already have FORCE RLS and a
 tenant_isolation policy; a new column is not a new visibility rule. `is_active` in
 particular must not become a security boundary on its own - it is enforced in
 app/routes/auth.py (login) and app/auth/dependencies.py (existing tokens), both of
 which run under the tenant context RLS already requires.
+
+No index on either column. `invites.role` is never read in a WHERE clause, and
+`users.is_active` is only ever read together with `tenant_id`, which the existing
+uq_user_email_per_tenant index already leads with. A standalone index on either
+would be write cost for no query.
 """
 from typing import Sequence, Union
 
@@ -86,7 +92,27 @@ def upgrade() -> None:
         ),
     )
 
+    # The two-value restriction enforced by the database, not only by the
+    # endpoint's schema validation.
+    #
+    # VARCHAR was chosen over the user_role enum for migration reasons, which
+    # leaves the column free to hold anything. That freedom is the thing to close
+    # off: `super_admin` must not be insertable into an invites row by any writer,
+    # including a future one that forgets to call the Pydantic validator, because
+    # `/invite/accept` creates a user at `invite.role` and a super_admin created
+    # through a tenant-scoped endpoint escapes tenant scoping entirely.
+    #
+    # A CHECK rather than the enum, because the point of avoiding the enum was to
+    # avoid ALTER TYPE on a live database, and reintroducing it here would undo
+    # that. The downgrade drops the constraint with the column.
+    op.create_check_constraint(
+        "ck_invites_role_is_tenant_role",
+        "invites",
+        "role IN ('employee', 'client_admin')",
+    )
+
 
 def downgrade() -> None:
+    op.drop_constraint("ck_invites_role_is_tenant_role", "invites", type_="check")
     op.drop_column("invites", "role")
     op.drop_column("users", "is_active")

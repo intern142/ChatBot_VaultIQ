@@ -20,6 +20,7 @@ from app.schemas.tenant import TenantStatus
 from app.models.session import Session
 from app.models.invite import Invite
 from app.models.audit_log import AuditLog
+from app.services.audit import write_audit_log as shared_write_audit_log
 from app.schemas.tenant import (
     TenantCreate,
     TenantResponse,
@@ -49,8 +50,15 @@ async def write_audit_log(
     target_id: UUID,
     details: dict[str, Any],
 ) -> AuditLog:
-    """Write an audit log entry. Caller must set tenant context."""
-    audit = AuditLog(
+    """Write an audit log entry. Caller must set tenant context.
+
+    VQ-301 moved the body to app/services/audit.py so that admin.py and users.py
+    share one implementation rather than two that can drift apart. This wrapper
+    exists so VQ-107's four call sites and its tests are untouched; it narrows
+    `target_id` to the non-optional type the /admin operations always pass.
+    """
+    return await shared_write_audit_log(
+        db=db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
         actor_role=actor_role,
@@ -59,9 +67,6 @@ async def write_audit_log(
         target_id=target_id,
         details=details,
     )
-    db.add(audit)
-    await db.flush()
-    return audit
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)

@@ -25,7 +25,7 @@ import hashlib
 import pytest
 from sqlalchemy import text
 
-from app.auth.password import hash_password
+from app.schemas.user import MAX_IMPORT_BYTES
 
 STRONG = "StrongPass1!"
 
@@ -488,13 +488,59 @@ class TestCsvImport:
     async def test_audit_row_holds_no_credential_material(
         self, async_client, tenant_a, token_a_admin
     ):
-        """No hashes, no passwords. The trail outlives the people in it."""
+        """No hashes, no passwords. The trail outlives the people in it.
+
+        Checked by shape rather than by comparing against a computed hash: bcrypt
+        salts are random, so `hash_password(x) not in body` would pass whether or
+        not a hash were present. `$2b$` is the marker that one is.
+        """
         await _csv(async_client, token_a_admin, self.GOOD)
         resp = await async_client.get("/users/audit", headers=_headers(token_a_admin))
         raw = resp.text
         assert "$2b$" not in raw
+        assert "$2a$" not in raw
         assert "unusable:" not in raw
-        assert hash_password(STRONG) not in raw
+        assert STRONG not in raw
+
+    async def test_report_line_numbers_survive_blank_lines(
+        self, async_client, tenant_a, token_a_admin
+    ):
+        """A report that points at the wrong line is worse than no report.
+
+        Blank lines are dropped before parsing, so an implementation that numbers
+        the filtered list would blame line 3 when the error is really on line 5.
+        """
+        csv_text = (
+            "email,role\n"
+            "first@tenanta.com,employee\n"
+            "\n"
+            "\n"
+            "wrong@tenanta.com,wizard\n"
+        )
+        resp = await _csv(async_client, token_a_admin, csv_text)
+        assert resp.status_code == 400, resp.text
+        rows = resp.json()["rows"]
+        assert [r["line"] for r in rows] == [2, 5]
+        assert rows[1]["email"] == "wrong@tenanta.com"
+
+    async def test_oversized_file_is_refused_before_parsing(
+        self, async_client, tenant_a, token_a_admin, db_engine
+    ):
+        """`file.read()` with no limit is how an upload becomes an allocation.
+
+        The cap is enforced by reading one byte past it, not by trusting the
+        client's Content-Length.
+        """
+        # 500 valid rows padded past the 1 MB cap.
+        padded = (
+            "email,role\n"
+            + "".join(f"pad{i}@tenanta.com,employee\n" for i in range(500))
+        )
+        padded += "#" * MAX_IMPORT_BYTES
+        resp = await _csv(async_client, token_a_admin, padded)
+        assert resp.status_code == 400, resp.text
+        assert "larger than" in resp.json()["detail"]
+        assert await _row(db_engine, "users", "email LIKE 'pad%'") == 0
 
 
 async def _user_id_by_email(db_engine, email: str, tenant_id) -> str:

@@ -42,7 +42,7 @@ import hashlib
 import io
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
@@ -60,11 +60,15 @@ from app.models.invite import Invite
 from app.models.reset_code import ResetCode
 from app.models.session import Session
 from app.models.user import User
+from app.services.audit import write_audit_log
 from app.schemas.user import (
+    AuditLogResponse,
     DeactivateResponse,
     EMAIL_PATTERN,
     ImportResponse,
     ImportRowResult,
+    INVITABLE_ROLES,
+    MAX_IMPORT_BYTES,
     MAX_IMPORT_ROWS,
     PasswordResetIssued,
     ReactivateResponse,
@@ -112,29 +116,6 @@ def hash_reset_code(code: str) -> str:
     over a working reset.
     """
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-async def write_audit_log(
-    db: AsyncSession,
-    tenant_id: UUID,
-    actor_user_id: Optional[UUID],
-    actor_role: str,
-    action: str,
-    target_type: str,
-    target_id: Optional[UUID],
-    details: dict[str, Any],
-) -> None:
-    audit = AuditLog(
-        tenant_id=tenant_id,
-        actor_user_id=actor_user_id,
-        actor_role=actor_role,
-        action=action,
-        target_type=target_type,
-        target_id=target_id,
-        details=details,
-    )
-    db.add(audit)
-    await db.flush()
 
 
 async def _find_visible_user(db: AsyncSession, user_id: UUID) -> User:
@@ -275,11 +256,15 @@ def _parse_import(raw: bytes) -> list[tuple[int, str, str]]:
     except csv.Error as exc:
         return None, f"Could not parse CSV: {exc}"
 
-    rows = [r for r in rows if any(cell.strip() for cell in r)]
-    if not rows:
+    # Blank lines are dropped, but the reported line number has to stay the line
+    # the admin will see in their editor. Enumerating the filtered list instead
+    # would drift by one for every blank line above the error, which makes the
+    # report - the entire point of this endpoint - point at the wrong row.
+    kept = [(number, row) for number, row in enumerate(rows, start=1) if any(cell.strip() for cell in row)]
+    if not kept:
         return None, "CSV file is empty"
 
-    header = [cell.strip().lower() for cell in rows[0]]
+    header = [cell.strip().lower() for cell in kept[0][1]]
     missing = CSV_REQUIRED_COLUMNS - set(header)
     if missing:
         return None, "CSV header is missing required column(s): " + ", ".join(
@@ -290,10 +275,10 @@ def _parse_import(raw: bytes) -> list[tuple[int, str, str]]:
     role_idx = header.index("role")
 
     parsed: list[tuple[int, str, str]] = []
-    for offset, row in enumerate(rows[1:], start=2):
+    for line_number, row in kept[1:]:
         email = row[email_idx].strip() if email_idx < len(row) else ""
         role = row[role_idx].strip().lower() if role_idx < len(row) else ""
-        parsed.append((offset, email, role))
+        parsed.append((line_number, email, role))
     return parsed, None
 
 
@@ -324,7 +309,18 @@ async def import_users(
     endpoint, so a client that ignores error bodies loses it - that is the
     client's bug to fix, and it is visible immediately rather than silent.
     """
-    raw = await file.read()
+    # Read one byte past the cap rather than trusting Content-Length or the
+    # client's declaration. `file.read()` with no limit is how an upload turns
+    # into an allocation of whatever size the caller chose.
+    raw = await file.read(MAX_IMPORT_BYTES + 1)
+    if len(raw) > MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"File is larger than {MAX_IMPORT_BYTES} bytes. A staff list of "
+                f"{MAX_IMPORT_ROWS} rows does not need to be."
+            ),
+        )
 
     rows, error = _parse_import(raw)
     if error is not None:
@@ -355,7 +351,7 @@ async def import_users(
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="Email is empty"))
         elif not EMAIL_PATTERN.match(normalised):
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="Not a valid email address"))
-        elif role not in {"employee", "client_admin"}:
+        elif role not in INVITABLE_ROLES:
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="Role must be employee or client_admin"))
         elif normalised in seen:
             results.append(ImportRowResult(line=line, email=email, status="invalid", reason="Duplicate email within this file"))
@@ -756,7 +752,7 @@ async def change_user_role(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/audit", response_model=list[dict])
+@router.get("/audit", response_model=list[AuditLogResponse])
 async def get_tenant_audit(
     limit: int = 200,
     current_user: User = Depends(get_current_user),
@@ -769,6 +765,8 @@ async def get_tenant_audit(
     no URL to get wrong, and no value in the request that could redirect the read.
     RLS scopes it the same way it scopes every other tenant table.
     """
+    # Bounded on both sides. `limit` is caller input, so an unbounded pass
+    # through would be a way to ask for the whole table.
     limit = max(1, min(limit, 500))
     result = await db.execute(
         select(AuditLog)
@@ -776,16 +774,7 @@ async def get_tenant_audit(
         .order_by(AuditLog.created_at.desc())
         .limit(limit)
     )
-    return [
-        {
-            "id": str(row.id),
-            "action": row.action,
-            "actor_user_id": str(row.actor_user_id) if row.actor_user_id else None,
-            "actor_role": row.actor_role,
-            "target_type": row.target_type,
-            "target_id": str(row.target_id) if row.target_id else None,
-            "details": row.details,
-            "created_at": row.created_at.isoformat(),
-        }
-        for row in result.scalars().all()
-    ]
+    # model_validate rather than a hand-built dict, so the response shape is
+    # checked against AuditLogResponse and a column rename cannot slip through as
+    # a missing key.
+    return [AuditLogResponse.model_validate(row) for row in result.scalars().all()]

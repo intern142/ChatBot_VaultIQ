@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -98,6 +98,12 @@ class UserInviteIssued(BaseModel):
 
 MAX_IMPORT_ROWS = 500
 
+# A 500-row file of `email,role` is well under 100 KB. This cap is not about the
+# row limit - it is about `await file.read()`, which pulls the whole upload into
+# memory before anything is validated. Without it a single request can ask the app
+# to allocate whatever the client chose to send.
+MAX_IMPORT_BYTES = 1_048_576
+
 
 class ImportRowResult(BaseModel):
     line: int
@@ -157,3 +163,31 @@ class DeactivateResponse(BaseModel):
 class ReactivateResponse(BaseModel):
     user: UserResponse
     message: str
+
+
+# ---------------------------------------------------------------------------
+# VQ-301 AC6: the tenant-scoped audit trail
+# ---------------------------------------------------------------------------
+
+
+class AuditLogResponse(BaseModel):
+    """One row of `GET /users/audit`.
+
+    Typed rather than `list[dict]`, so a change to the audit table that the
+    endpoint does not account for becomes a validation error instead of a
+    silently wrong response body.
+    """
+
+    id: UUID
+    action: str
+    actor_user_id: Optional[UUID] = None
+    actor_role: str
+    target_type: str
+    target_id: Optional[UUID] = None
+    # default_factory rather than a literal `{}`: a mutable default is the thing
+    # the review checklist calls out, and a shared dict across instances is a
+    # latent bug even where the framework happens to copy it.
+    details: dict = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
