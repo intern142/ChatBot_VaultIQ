@@ -37,11 +37,17 @@ settings = get_settings()
 # isolation suite meaningless.
 #
 # In CI (GitHub Actions), these are the exact URLs used by the workflow.
-# Local development can override by editing this file or setting env vars
-# ADMIN_DATABASE_URL / APP_DATABASE_URL before running pytest.
+# The workflow exports them in the test step. Local development can override
+# by setting ADMIN_DATABASE_URL / APP_DATABASE_URL env vars before running pytest.
 
-ADMIN_DATABASE_URL = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
-APP_DATABASE_URL = "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
+ADMIN_DATABASE_URL = os.environ.get(
+    "ADMIN_DATABASE_URL",
+    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
+)
+APP_DATABASE_URL = os.environ.get(
+    "APP_DATABASE_URL",
+    "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq",
+)
 
 test_app_engine = create_async_engine(
     APP_DATABASE_URL,
