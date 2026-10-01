@@ -72,10 +72,9 @@ jobs:
           psql -h localhost -U vaultiq -d vaultiq -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vaultiq_app;"
 
       - name: Run tests (as vaultiq_app, NOBYPASSRLS)
-        env:
-          ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
-          DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
-          DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
-          JWT_SECRET: test-secret
         run: |
+          export ADMIN_DATABASE_URL="postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+          export APP_DATABASE_URL="postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
+          export DATABASE_URL_SYNC="postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+          export JWT_SECRET="test-secret"
           python -m pytest tests/ -v --tb=short
