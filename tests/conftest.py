@@ -36,15 +36,22 @@ settings = get_settings()
 # The default must be the NOBYPASSRLS role. Running the suite against the
 # superuser silently disables every RLS policy and makes the whole tenant
 # isolation suite meaningless.
+#
+# In CI (GitHub Actions), the superuser URL is not passed via env var
+# reliably, so we hardcode it when GITHUB_ACTIONS=true.
 
-ADMIN_DATABASE_URL = os.environ.get(
-    "ADMIN_DATABASE_URL",
-    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
-)
-APP_DATABASE_URL = os.environ.get(
-    "APP_DATABASE_URL",
-    ADMIN_DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"),
-)
+if os.environ.get("GITHUB_ACTIONS") == "true":
+    ADMIN_DATABASE_URL = "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq"
+    APP_DATABASE_URL = "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq"
+else:
+    ADMIN_DATABASE_URL = os.environ.get(
+        "ADMIN_DATABASE_URL",
+        "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
+    )
+    APP_DATABASE_URL = os.environ.get(
+        "APP_DATABASE_URL",
+        ADMIN_DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"),
+    )
 
 test_app_engine = create_async_engine(
     APP_DATABASE_URL,
