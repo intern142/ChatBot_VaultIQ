@@ -108,15 +108,74 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- **Current branch: `vq-301-password-reset`** (remote `14e45e9`, pushed)
+- **Current branch: `vq-301-password-reset`** (remote `c697fc7`, pushed)
+- **PR #14 open** against main for AC4 only.
 - **Current task: VQ-301 — User management for Client Admins.** Only **AC4**
-  (password reset) is in scope on this branch. Gates 1 and 2 done, Gate 3 green
-  locally, **CI red** (see Blockers). Gates 4-7 outstanding.
-- **Full suite locally: 189 passed, 0 failed** (163 pre-existing + 26 new).
+  (password reset) is in scope on this branch. Gates 1-4 and 6 done. **Gate 5**
+  (code review) and **Gate 7** (demo) outstanding.
+- **Full suite locally: 190 passed, 0 failed** (163 pre-existing + 27 new).
+- **CI green.** Run `36827084819` and `36829105674`, both `190 passed`, with the
+  application running as `vaultiq_app` (NOBYPASSRLS).
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110.
 - Unmerged Sprint 3 work: VQ-201 (PR #10), VQ-202 (PR #11), VQ-203 (PR #13).
 - `AGENTS_BE.md` is **not** on this branch; it lives only on `BE_accurate` at
   `8afa32c`. It has not been deleted.
+
+## VQ-301 — Gate 6 evidence (live container)
+Rebuilt image `vaultiq-vq301:test` from this branch, fresh Postgres
+(`vq301-gate6-db`, internal network, no host port), `alembic upgrade head` to
+`27905f137fd4`, app in `vq301-gate6-api` published on **127.0.0.1:8010** running
+as **`vaultiq_app`** (`rolbypassrls = f`, confirmed by psql). 75 real HTTP
+requests over the wire. Two tenants built through the product itself: SUPER
+login → `POST /admin/tenants` G6ALPHA + G6BRAVO → invite → `POST /invite/accept`
+→ both Client Admins log in.
+
+| # | Step | Result |
+|---|------|--------|
+| 7 | `POST /users/{employee}/password-reset` as G6ALPHA Client Admin | **201**, 43-char code |
+| 8 | `POST /auth/reset-password` with **no Authorization header at all** | **200** "Password updated. All existing sessions have been signed out." |
+| 9a | login, **old** password | **401** |
+| 9b | login, **new** password | **200**, new token |
+| 10 | `GET /documents` with the token minted **before** the reset | **401** |
+| 11 | replay the spent code | **401** |
+| 12 | 4 malformed/unknown codes, bodies read verbatim | all **401** `{"detail":"Invalid or expired reset code"}`, 209-223 ms |
+| 12c | weak password, then the **same code** with a strong one | **400**, then **200** — the 400 did not consume the code |
+| 13 | G6ALPHA admin targets a **G6BRAVO** user | **404** |
+| 14 | admin targets their own account | **400** |
+| 15a/15b | issue as **employee** / as **super admin** | **403** / **403** |
+| 21 | 5 wrong passwords → lockout; correct password still refused | **401**; then a reset code consumed (**200**) and the new password logs in **200** — the lockout was cleared |
+| 22 | **three concurrent claims on one code** | **200, 401, 401** |
+| 23 | code aged past `expires_at` in the database | **401**, same body |
+| 24 | four live codes issued for one user | oldest **401** (revoked to hold the cap at 3), newest **200** |
+
+**Database, as `vaultiq_app`:**
+- No tenant context → `SELECT count(*) FROM reset_codes` = **0**.
+- `SET LOCAL app.current_tenant = G6ALPHA` → 8 own rows, **0** G6BRAVO rows,
+  2 users visible.
+- `SET LOCAL app.reset_code_hash = <hash>` → **exactly 1** row, and an
+  `UPDATE` under that same context affects **0 rows** — the public policy is
+  SELECT-only and cannot consume a code by itself.
+
+**Audit:** `GET /admin/tenants/{G6ALPHA}/audit` shows
+`request_password_reset` (actor_role `client_admin`) and
+`complete_password_reset` (actor_role `employee`) interleaved with the
+lifecycle entries. **Zero** audit rows contain a 43-char code. G6BRAVO's audit
+holds only its own 3 lifecycle rows.
+
+**Codes are not recoverable from the database.** All `code_hash` values are
+64-char SHA-256 hex; no plaintext. **Zero** 43-char tokens in the container log
+when `APP_ENV=production`.
+
+### Two findings from Gate 6, both outside AC4
+1. **`APP_ENV=development` turns on SQLAlchemy `echo`, which writes the
+   `invites` plaintext codes into the container log** (3 lines per invite). This
+   is VQ-107's `invites` table, not `reset_codes` — VQ-301's codes were absent
+   from the log even in development because they are hashed before they are
+   stored. Worth fixing by not echoing in any deployed configuration; not fixed
+   here because it is a different story's table and a config-wide change.
+2. **`/auth/reset-password` has no rate limiting.** The 200 ms floor bounds it
+   at roughly 5/s per connection and codes are 256-bit, so guessing is not the
+   attack. Flagged for the security story.
 
 ## VQ-301 — Gate 1 was wrong and has been corrected
 The committed approach note at `564df83` had the **platform operator / Super
@@ -162,6 +221,7 @@ reset code to any caller, which is a token-disclosure hole.
   both policies with `reset_code_lookup` still SELECT-only.
 
 ## VQ-301 — the other five acceptance criteria are NOT started
+
 Invite one user · CSV import with validate-all-then-apply-or-none and a
 row-by-row report · deactivate (ends sessions immediately) and reactivate ·
 role change Employee↔Client Admin behind a step-up re-authentication ·
@@ -169,15 +229,15 @@ tenant-scoped auditing across all of the above. Only password reset is done.
 This branch does not complete VQ-301.
 
 ## Blockers
-- **CI is red on this branch** (run `36747747979`): `130 passed, 59 errors`, all
-  `InsufficientPrivilegeError: permission denied for table users`. Cause
-  identified: switching the pytest step to `vaultiq_app` exposed that
-  `tests/conftest.py` still builds its `db_engine` (and the admin engine inside
-  `app_db_session`) from `settings.DATABASE_URL`, which is now the app role. The
-  fixtures therefore tried to `TRUNCATE` as `vaultiq_app`. The same two-line fix
-  already exists on `vq-203` (`cc37953`, "ci: fix db_engine to use
-  ADMIN_DATABASE_URL for truncation") and has not been ported here. Not yet
-  applied on this branch.
+- **Resolved — CI was red on this branch** (run `36747747979`): `130 passed, 59
+  errors`, all `InsufficientPrivilegeError: permission denied for table users`.
+  Cause: switching the pytest step to `vaultiq_app` exposed that
+  `tests/conftest.py` still built its `db_engine` (and the admin engine inside
+  `app_db_session`) from `settings.DATABASE_URL`, which is now the app role, so
+  the fixtures tried to `TRUNCATE` as `vaultiq_app`. Fixed at `cc55536` by using
+  `ADMIN_DATABASE_URL` for both. Carried over from `vq-203` (`cc37953`), where
+  the same defect had already been fixed once. Worth fixing once at the root
+  rather than porting branch by branch.
 - **The local Docker database was polluted by another branch's schema.** It
   carried VQ-202's `document_group_id` (NOT NULL) and `document_approval_status`,
   which do not exist on this branch, producing 17 spurious

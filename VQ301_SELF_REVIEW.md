@@ -117,7 +117,14 @@ The criteria below are the branch's own, from `APPROACH_VQ301.md`.
 
 - Issue, consume, expire, single-use, race, session revocation, lockout clear,
   cross-tenant, hashing, audit, uniform failure — all automated.
-- Live container evidence — Gate 6, still outstanding.
+- Live container evidence — **Gate 6 done**. Rebuilt image from this branch, fresh
+  Postgres, app published on 127.0.0.1:8010 running as `vaultiq_app`
+  (`rolbypassrls = f`). 75 real HTTP requests. Full table in `AGENTS.md`.
+  Highlights: consume with no `Authorization` header at all → 200; old password
+  401 and new one 200; the pre-reset token 401; a replay 401; three concurrent
+  claims on one code → 200/401/401; four malformed codes → identical body at
+  209-223 ms; cross-tenant issue 404; self-target 400; employee and super admin
+  both 403; a locked-out account still recovered by a reset code.
 
 ## Checklist (`.github/CHECKLIST.md`)
 
@@ -206,7 +213,6 @@ The criteria below are the branch's own, from `APPROACH_VQ301.md`.
 
 ## Known gaps
 
-- **Gate 6 (live container) not done.** Test output is not proof.
 - The other five VQ-301 criteria are not started: invite one user, CSV import
   with validate-all-then-apply-or-none and a row-by-row report, deactivate /
   reactivate, role change Employee↔Client Admin behind step-up re-authentication,
