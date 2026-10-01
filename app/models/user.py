@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint, Integer
+from sqlalchemy import Boolean, Column, String, DateTime, Enum, ForeignKey, func, UniqueConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -26,6 +26,14 @@ class User(Base):
     )
     failed_login_attempts = Column(Integer, nullable=False, default=0)
     locked_until = Column(DateTime(timezone=True), nullable=True)
+    # VQ-301 AC3. A boolean rather than a status enum: a user is active or it is
+    # not, and "pending invite" is a row in `invites`, not a state of a user.
+    # NOT NULL, so there is no third state to interpret. The server default of
+    # true (migration c4d81f0a7e26) matches this Python default on purpose: a row
+    # written without the flag is an active user, which is what it meant before
+    # the column existed. `true` is also the safe direction - a path that forgets
+    # the flag reproduces existing behaviour rather than disabling an account.
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
