@@ -11,12 +11,12 @@
 | `3399489` | Migration `27905f137fd4` — `reset_codes`, hashed code, two policies |
 | `28fe345` | Model, schemas, config, `set_reset_code_context`, router wiring |
 | `65c1f35` | `POST /users/{user_id}/password-reset`, `POST /auth/reset-password` |
-| `7bfa2af` | Gate 3 — 26 tests |
+| `7bfa2af` | Gate 3 — 26 tests (27 after the Gate 4 timing-floor test) |
 | `14e45e9` | CI runs as `vaultiq_app`, adds the branch trigger |
 | `cc55536` | CI: fixtures truncate as `ADMIN_DATABASE_URL`, not the app role |
 
-CI on `cc55536`, run **36827084819**: green, **189 passed** in 89s. CI has not
-yet been run against this gate's new test.
+CI on `cc55536`, run **36827084819**: green, **189 passed** in 89s. CI on this
+gate's commit, run **36829105674**: green, **190 passed**.
 
 ## Gate 1 was wrong and was corrected before code was written
 

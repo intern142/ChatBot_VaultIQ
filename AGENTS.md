@@ -248,7 +248,7 @@ This branch does not complete VQ-301.
   has now been run against this one shared local database. Migration ordering
   across those branches is still unresolved.
 
-## VQ-110 Progress (Current Task)
+## VQ-110 Progress
 ### Gate 1: Approach Note ✅
 - `APPROACH_VQ110.md` written — fixture design, route manifest, coverage guard, test matrix, body leak checks
 
@@ -1001,7 +1001,7 @@ tests/
   test_rls.py        — 15 tests for VQ-102 (RLS isolation, roles, async ORM)
   test_permissions.py — 21 tests for VQ-106
   test_tenant_lifecycle.py — 21 tests for VQ-107
-  test_password_reset.py — 26 tests for VQ-301 AC4
+  test_password_reset.py — 27 tests for VQ-301 AC4
 alembic/
   env.py
   versions/
@@ -1028,7 +1028,8 @@ alembic/
 - Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-301-password-reset`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
 - Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
-- Status: **RED on this branch** — run `36747747979`, `130 passed, 59 errors`
+- Status: **GREEN on this branch** — runs `36827084819` and `36829105674`, both
+  `190 passed`, with the app connecting as `vaultiq_app`
 
 > **This branch's CI now runs the application as `vaultiq_app`** (commit
 > `14e45e9`), not the superuser. That was Known Defect #1: the pytest step
@@ -1042,9 +1043,11 @@ alembic/
 > `TRUNCATE` as `vaultiq_app` and got `permission denied for table users`. The
 > fixtures must seed and truncate as the **admin** identity:
 > `db_engine` → `ADMIN_DATABASE_URL`, and the same inside `app_db_session`.
-> That two-line change already exists on `vq-203` (`cc37953`) and has not been
-> ported here yet. This is the same defect that broke `vq-203`; fix it once and
-> carry it to every branch.
+> That two-line change already existed on `vq-203` (`cc37953`) and was ported to
+> this branch at `cc55536`. **This is the second time the same defect has broken a
+> branch.** Fix it at the root — make `db_engine` and the admin engine default to
+> the admin identity unconditionally, rather than relying on each branch to
+> remember the port — and check `vq-202` and `vq-201` while you are there.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**
