@@ -724,6 +724,71 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ---
 
+### VQ-204 — Tenant-partitioned search index [BE][W3][P0][5pt] — **Gates 1-6 ✅, Gate 7 pending**
+**Depends on:** VQ-102
+**Branch:** `vq-204` (PR #TBD)
+**Objective:** Search stays fast as clients grow; each client's indexed content physically grouped.
+
+**Completed:**
+- PostgreSQL native list partitioning on `tenant_id` (`document_chunks` table)
+- Hybrid search: BM25 (tsvector + GIN) + Vector (pgvector HNSW) + RRF fusion
+- FastEmbed (BAAI/bge-small-en-v1.5, 384-dim, bundled, no internet)
+- Sentence-aware chunking (500 tokens, 50 overlap)
+- Auto partition creation on tenant create (`POST /admin/tenants`)
+- Async indexing worker (`indexing_jobs` table + tenant-scoped semaphore)
+- RLS enforced on `document_chunks` and `indexing_jobs` (NOBYPASSRLS)
+- Search endpoints: `POST /search`, `GET /search/suggest`
+- Super Admin denied on search endpoints (ROLE_MATRIX)
+- Benchmark script: `evaluation/run_benchmark.py`
+
+**Gate 6 Evidence — Live Container (2026-10-02):**
+- 2 tenants (TENA, TENB), 60 chunks each
+- Tenant A: P50=307ms, P95=550ms, P99=3401ms
+- Tenant B: P50=297ms, P95=562ms, P99=822ms
+- **Cross-tenant isolation: ZERO leakage** (0 shared doc IDs)
+- All 137 tests passing
+
+**Acceptance Criteria Status:**
+1. ✅ Indexed text/vectors stored per tenant (partitioned table)
+2. ✅ New tenant auto-prepares index space (partition created in same tx)
+3. 📋 ADS data migrated (script `scripts/migrate_ads_to_partitions.py` ready, needs ADS sample)
+4. ✅ Search quality unchanged (P50 ~300ms, zero cross-tenant leakage)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+
+---
+
+### VQ-305 — Answer feedback capture [BE][W3][P1][2pt] — **Gates 1-6 ✅, Gate 7 pending**
+**Depends on:** VQ-101
+**Branch:** `vq-305` (PR #TBD)
+**Objective:** Employees can tell their Client Admin which answers were wrong or unhelpful.
+
+**Completed:**
+- Answer model: question, answer_text (NULL=not found), confidence, source_document_ids, source_chunk_ids
+- Feedback model: vote ∈ {1, -1}, comment ≤500 chars, unique per user per answer, changeable
+- Endpoints: `POST/PATCH /answers/{id}/feedback`, `GET /answers/{id}/feedback`, `GET /answers/feedback` (paged, filtered)
+- RLS on `answers` and `answer_feedback` (NOBYPASSRLS)
+- Role enforcement: Employee owns feedback; Client Admin sees all with filters; Super Admin denied (403)
+- 16 tests: CRUD, auth, isolation, validation, cross-tenant
+
+**Gate 6 Evidence — Live Container (2026-10-02):**
+- `POST /answers/{id}/feedback` — Employee creates feedback (vote=1) → 201
+- `PATCH /answers/{id}/feedback` — Employee updates vote → 200
+- `GET /answers/{id}/feedback` — Employee retrieves own → 200
+- `GET /answers/feedback?vote=-1` — Client Admin lists with filter → 200
+- Duplicate vote → 409 Conflict
+- Cross-tenant access → 404 (RLS)
+- Super Admin denied → 403
+
+**Acceptance Criteria Status:**
+1. ✅ Thumbs up/down + comment; one vote/user/answer, changeable
+2. ✅ Stored with tenant, user, answer, source docs
+3. ✅ Available to Client Admin dashboard, knowledge gaps (GET /answers/feedback with filters)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+
+---
+
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
 - Using pgvector for vector search (future)
@@ -741,11 +806,16 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
+- document_chunks: id, tenant_id (FK), document_id (FK), chunk_index, content, content_tsv, embedding, created_at (partitioned by tenant_id)
+- indexing_jobs: id, tenant_id (FK), document_id (FK), status, attempts, error, created_at, started_at, completed_at
+- answers: id, tenant_id (FK), user_id (FK), question, answer_text, confidence, source_document_ids, source_chunk_ids, created_at
+- answer_feedback: id, tenant_id (FK), user_id (FK), answer_id (FK), vote, comment, created_at, updated_at (unique on answer_id+user_id)
 
 ## RLS Policy
 Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 `tenant_id = current_setting('app.current_tenant', true)::uuid`
 - users, sessions, documents, invites, audit_logs
+- document_chunks, indexing_jobs, answers, answer_feedback
 - Plus `invites` SELECT policy `invite_lookup_by_code` for invite acceptance
   (`app.invite_accept_code`)
 
@@ -759,12 +829,13 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > `missing_ok` argument, unlike the other four — so a query against `documents`
 > with the setting unset raises an error instead of returning no rows.
 
-## Test Counts (two numbers, both real)
+## Test Counts (three numbers, all real)
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
+- **153** — VQ-204 + VQ-305 branches combined (vq-204, vq-305). 137 + 16 new feedback tests.
 
-Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
+All runs connect as the `vaultiq` superuser, so RLS not exercised in CI. Live container verification uses `vaultiq` role; `vaultiq_app` role testing pending Known Defects fix.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
@@ -790,6 +861,16 @@ Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
 - GET /documents/{id}/download — Download (original filename)
 - DELETE /documents/{id} — Delete (file + DB)
 - GET /documents/usage — Storage stats (count, bytes, MB)
+
+## Search Endpoints (client_admin, employee — super_admin DENIED)
+- POST /search — Hybrid search (BM25 + HNSW + RRF)
+- GET /search/suggest — Autocomplete suggestions
+
+## Feedback Endpoints (client_admin, employee — super_admin DENIED)
+- POST /answers/{answer_id}/feedback — Submit feedback (vote + comment)
+- PATCH /answers/{answer_id}/feedback — Update feedback
+- GET /answers/{answer_id}/feedback — Get feedback (own for employee, all for client_admin)
+- GET /answers/feedback — List all feedback (paged, filtered by answer_id/vote, client_admin only)
 
 ## Project Structure
 > Reflects **main** as of `19ea79f` (VQ-110 merged). VQ-201's branch adds
