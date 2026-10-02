@@ -41,6 +41,8 @@ async def hybrid_search(
     # Generate query embedding
     from app.services.embeddings import embed_text
     query_embedding = embed_text(query)
+    # Format as pgvector string: '[0.1, 0.2, ...]'
+    query_embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
     # RRF constant
     k = 60
@@ -87,7 +89,7 @@ async def hybrid_search(
 
     vector_result = await db.execute(
         vector_sql,
-        {"tenant_id": tenant_uuid, "embedding": query_embedding, "limit": top_k * 2}
+        {"tenant_id": tenant_uuid, "embedding": query_embedding_str, "limit": top_k * 2}
     )
     vector_rows = vector_result.mappings().all()
 
@@ -113,7 +115,7 @@ async def hybrid_search(
             scores[chunk_id] = (rrf_score * hybrid_weight, row)
 
     # Sort by combined score
-    sorted_results = sorted(scores.items(), key=lambda x: x[0], reverse=True)[:top_k]
+    sorted_results = sorted(scores.items(), key=lambda x: x[1][0], reverse=True)[:top_k]
 
     results = [
         SearchResult(
@@ -123,7 +125,7 @@ async def hybrid_search(
             score=round(score, 4),
             original_filename=row['original_filename'],
         )
-        for score, row in sorted_results
+        for chunk_id, (score, row) in sorted_results
     ]
 
     return SearchResponse(
