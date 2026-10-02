@@ -16,6 +16,7 @@ async def test_create_tenant(db_session: AsyncSession):
         short_code="ACME",
         name="Acme Corporation",
         status="active",
+        storage_quota_mb=2048,
     )
     db_session.add(tenant)
     await db_session.commit()
@@ -29,7 +30,7 @@ async def test_create_tenant(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_create_user_with_tenant(db_session: AsyncSession):
-    tenant = Tenant(short_code="ACME", name="Acme Corp")
+    tenant = Tenant(short_code="ACME", name="Acme Corp", storage_quota_mb=2048)
     db_session.add(tenant)
     await db_session.commit()
     await db_session.refresh(tenant)
@@ -108,7 +109,7 @@ async def test_tenant_unique_short_code(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_user_unique_email_per_tenant(db_session: AsyncSession):
-    tenant = Tenant(short_code="ACME", name="Acme Corp")
+    tenant = Tenant(short_code="ACME", name="Acme Corp", storage_quota_mb=2048)
     db_session.add(tenant)
     await db_session.commit()
     await db_session.refresh(tenant)
@@ -142,10 +143,10 @@ def test_rls_blocks_cross_tenant_read():
     admin_cur.execute("TRUNCATE users, tenants CASCADE")
     admin_conn.commit()
 
-    admin_cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TENANT1", "Tenant One"))
+    admin_cur.execute("INSERT INTO tenants (short_code, name, storage_quota_mb) VALUES (%s, %s, %s) RETURNING id", ("TENANT1", "Tenant One", 2048))
     tenant1_id = admin_cur.fetchone()[0]
 
-    admin_cur.execute("INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id", ("TENANT2", "Tenant Two"))
+    admin_cur.execute("INSERT INTO tenants (short_code, name, storage_quota_mb) VALUES (%s, %s, %s) RETURNING id", ("TENANT2", "Tenant Two", 2048))
     tenant2_id = admin_cur.fetchone()[0]
 
     admin_cur.execute(

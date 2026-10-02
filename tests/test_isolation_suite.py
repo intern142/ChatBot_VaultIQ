@@ -15,7 +15,15 @@ from tests.isolation_manifest import ISOLATION_COVERED_ROUTES, normalize_path
 
 def test_route_coverage_guard():
     """Every tenant-scoped route in the app must be listed in ISOLATION_COVERED_ROUTES."""
-    tenant_scoped_prefixes = ("/documents", "/admin", "/auth/refresh", "/auth/logout", "/invite/accept")
+    tenant_scoped_prefixes = (
+        "/documents",
+        "/admin",
+        "/users",
+        "/auth/refresh",
+        "/auth/logout",
+        "/auth/reset-password",
+        "/invite/accept",
+    )
     tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
@@ -372,7 +380,7 @@ class TestUploadEndpoint:
     """POST /documents - upload with cross-tenant context."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("token_fixture", ["token_a_admin", "token_a_emp", "token_b_admin", "token_b_emp"])
+    @pytest.mark.parametrize("token_fixture", ["token_a_admin", "token_b_admin"])
     async def test_upload_isolation(self, async_client, request, token_fixture, tenant_a_ids, tenant_b_ids):
         """Upload with tenant A token creates document in tenant A's storage only."""
         token = request.getfixturevalue(token_fixture)
@@ -380,10 +388,27 @@ class TestUploadEndpoint:
         other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
 
         files = {"file": ("test.txt", b"test content", "text/plain")}
-        resp = await make_request(async_client, "POST", "/documents", token, files=files)
+        data = {"category": "policy"}
+        resp = await make_request(async_client, "POST", "/documents", token, files=files, data=data)
         assert resp.status_code == 201
-        data = resp.json()
-        assert data["tenant_id"] != other_tenant_id, "Upload created document in wrong tenant"
+        resp_data = resp.json()
+        assert resp_data["tenant_id"] != other_tenant_id, "Upload created document in wrong tenant"
+
+    @pytest.mark.asyncio
+    async def test_upload_employee_forbidden_a(self, async_client, token_a_emp):
+        """Employee cannot upload documents (403)."""
+        files = {"file": ("test.txt", b"test content", "text/plain")}
+        data = {"category": "policy"}
+        resp = await make_request(async_client, "POST", "/documents", token_a_emp, files=files, data=data)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_upload_employee_forbidden_b(self, async_client, token_b_emp):
+        """Employee cannot upload documents (403)."""
+        files = {"file": ("test.txt", b"test content", "text/plain")}
+        data = {"category": "policy"}
+        resp = await make_request(async_client, "POST", "/documents", token_b_emp, files=files, data=data)
+        assert resp.status_code == 403
 
 
 # ---- Manifest completeness verification ----

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import BigInteger, Enum, ForeignKey, Index, Integer, Text, DateTime
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
@@ -22,6 +22,18 @@ class Document(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False
+    )
+    category: Mapped[str] = mapped_column(
+        Enum('policy', 'hr', 'sop', 'process', 'other', name='document_category'),
+        nullable=False,
+        default='other'
+    )
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    extraction_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    extraction_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extraction_truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
