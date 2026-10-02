@@ -22,6 +22,12 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/documents/{document_id}/download"),
     ("DELETE", "/documents/{document_id}"),
 
+    # Feedback — tenant users only (super_admin DENIED by permissions)
+    ("POST", "/answers/{answer_id}/feedback"),
+    ("PATCH", "/answers/{answer_id}/feedback"),
+    ("GET", "/answers/{answer_id}/feedback"),
+    ("GET", "/answers/feedback"),
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"),
     ("GET", "/admin/tenants"),

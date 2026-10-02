@@ -34,6 +34,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
 
+    # Feedback — tenant users only (super admin DENIED)
+    ("POST", "/answers/{answer_id}/feedback"): {"client_admin", "employee"},
+    ("PATCH", "/answers/{answer_id}/feedback"): {"client_admin", "employee"},
+    ("GET", "/answers/{answer_id}/feedback"): {"client_admin", "employee"},
+    ("GET", "/answers/feedback"): {"client_admin"},
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"): {"super_admin"},
     ("GET", "/admin/tenants"): {"super_admin"},
