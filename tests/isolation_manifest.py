@@ -29,6 +29,9 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+    ("GET", "/admin/tenants/{tenant_id}/settings"),
+    ("PATCH", "/admin/tenants/{tenant_id}/settings"),
+    ("POST", "/admin/tenants/{tenant_id}/settings/logo"),
 }
 
 

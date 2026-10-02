@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from sqlalchemy import String, DateTime, Enum, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -41,6 +41,9 @@ class Tenant(Base):
     )
     audit_logs: Mapped[List['AuditLog']] = relationship(
         'AuditLog', back_populates='tenant', cascade="all, delete-orphan"
+    )
+    settings: Mapped[Optional['TenantSettings']] = relationship(
+        'TenantSettings', back_populates='tenant', cascade="all, delete-orphan", uselist=False
     )
 
     def __repr__(self):

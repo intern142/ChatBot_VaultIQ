@@ -41,6 +41,17 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
     ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
     ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
+    ("GET", "/admin/tenants/{tenant_id}/settings"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/settings"): {"super_admin"},
+    ("POST", "/admin/tenants/{tenant_id}/settings/logo"): {"super_admin"},
+
+    # Tenant settings — client_admin only
+    ("GET", "/tenant/settings"): {"client_admin"},
+    ("PATCH", "/tenant/settings"): {"client_admin"},
+    ("POST", "/tenant/settings/logo"): {"client_admin"},
+
+    # Public tenant lookup — no auth
+    ("GET", "/tenants/{short_code}/public"): {"super_admin", "client_admin", "employee"},
 }
 
 

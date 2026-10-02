@@ -108,10 +108,26 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
+- **Current branch:** `vq-304` (VQ-304 in progress)
+- **Sprint 1 + Sprint 2 merged to main:** VQ-101, 102, 103, 104, 105, 106, 107, 110 ✅
+- **Sprint 3 Active PRs:**
+  - VQ-201 (PR #10) — Document upload, quota, OCR — CI failing (db_engine fix needed)
+  - VQ-202 (PR #11) — Approval & versioning — CI failing (db_engine fix needed)
+  - VQ-203 (PR #13) — Processing queue — No CI checks
+  - VQ-301 (PR #14) — User management — CI failing (db_engine fix needed)
+- **VQ-304 (this branch)** — Tenant settings storage & validation — **Gates 1-6 ✅, Gate 7 pending**
+  - Branch: `vq-304` (pushed to origin)
+  - Migration: `tenant_settings` table + RLS ✅
+  - Model: `app/models/tenant_settings.py` ✅, relationship on Tenant ✅
+  - Schemas: `app/schemas/tenant_settings.py` ✅ (ClientAdmin + SuperAdmin + Public)
+  - Service: `app/services/tenant_settings.py` ✅ (validation, logo upload, audit)
+  - Routes: `app/routes/tenant.py` (client_admin), `app/routes/public.py` (public), admin endpoints in `admin.py`
+  - Tests: `tests/test_vq304.py` (29 tests) — **all passing**
+  - Gate 3: 166 total tests passing (137 + 29 VQ-304)
+  - Gate 4: Self-review documented in `VQ304_SELF_REVIEW.md`
+  - Gate 6: Live container verified — 29/29 VQ-304 tests pass against Docker PG + uvicorn
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
-- Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
+- Test suite on vq-304: **166 passed** (137 + 29 VQ-304)
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -678,7 +694,7 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
-Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
+Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204 → VQ-210 → VQ-301 → VQ-302 → VQ-304 → VQ-305
 ```
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
@@ -724,6 +740,38 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ---
 
+### VQ-304 — Tenant settings storage and validation [BE][W3][P1][2pt] — **Gates 1-6 ✅, Gate 7 pending**
+**Branch:** `vq-304` (pushed to origin) · **Depends on:** VQ-107 (tenant lifecycle)
+**Objective:** Each client can adjust VaultIQ within limits we control, and those adjustments are stored safely.
+
+**Acceptance Criteria Status:**
+1. ✅ Client Admin can set display name, logo (validated image, size-limited, stored in tenant's storage), accent colour, custom 'not found' message (plain text, length-limited), allowed upload formats, conversation retention days
+2. ✅ Storage quota visible to Client Admin but only Super Admin can change it
+3. ✅ Every setting validated; bad value rejected with clear reason
+4. ✅ Changes are audited
+5. ✅ Public lookup by organisation code returns only name, logo and colour; behaves identically for non-existent code
+
+**Completed:**
+- Migration `5cf4dcd6b1b1`: `tenant_settings` table with RLS (`FORCE ROW LEVEL SECURITY`, `tenant_isolation` policy)
+- Model `app/models/tenant_settings.py` with relationship on `Tenant`
+- Schemas `app/schemas/tenant_settings.py` — `TenantSettingsUpdateClientAdmin`, `TenantSettingsUpdateSuperAdmin`, `TenantSettingsResponse`, `TenantPublicResponse`
+- Service `app/services/tenant_settings.py` — validation, logo upload (libmagic + PIL), audit
+- Routes: `app/routes/tenant.py` (client_admin), `app/routes/public.py` (public), admin endpoints in `admin.py`
+- Tests: `tests/test_vq304.py` (29 tests covering all ACs) — **all passing**
+
+**Gate Progress:**
+- Gate 1: Approach note approved (`APPROACH_VQ304.md`)
+- Gate 2: Implementation complete
+- Gate 3: 166 total tests passing (137 + 29 VQ-304)
+- Gate 4: Self-review documented in `VQ304_SELF_REVIEW.md`
+- Gate 5: Pending (code review)
+- Gate 6: Live container verified — 29/29 VQ-304 tests pass against Docker PG + uvicorn (`VQ304_GATE6_LIVE_VERIFY.md`)
+- Gate 7: Pending (demo Friday)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo)
+
+---
+
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
 - Using pgvector for vector search (future)
@@ -741,11 +789,12 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
+- **tenant_settings: tenant_id (PK, FK), display_name, logo_path, accent_colour, not_found_message, allowed_upload_formats (JSONB), conversation_retention_days, updated_by (FK), updated_at**
 
 ## RLS Policy
 Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 `tenant_id = current_setting('app.current_tenant', true)::uuid`
-- users, sessions, documents, invites, audit_logs
+- users, sessions, documents, invites, audit_logs, **tenant_settings**
 - Plus `invites` SELECT policy `invite_lookup_by_code` for invite acceptance
   (`app.invite_accept_code`)
 

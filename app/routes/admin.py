@@ -1,11 +1,12 @@
 """VQ-107: Admin endpoints for tenant lifecycle management."""
 import secrets
 import base64
+import magic
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from typing import Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,13 @@ from app.schemas.tenant import (
     InviteResponse,
     AuditLogResponse,
 )
+from app.schemas.tenant_settings import (
+    TenantSettingsResponse,
+    TenantSettingsUpdateSuperAdmin,
+    LogoUploadResponse,
+)
 from app.config import get_settings
+from app.services.tenant_settings import TenantSettingsService
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_roles("super_admin"))])
 settings = get_settings()
@@ -306,3 +313,90 @@ async def get_audit_log(
     )
     logs = result.scalars().all()
     return logs
+
+
+@router.get("/tenants/{tenant_id}/settings", response_model=TenantSettingsResponse)
+async def get_tenant_settings(
+    tenant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all settings for a tenant (super_admin)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    ts = await TenantSettingsService.get_settings(db, tenant_id)
+    if not ts:
+        # Return defaults
+        return TenantSettingsResponse(
+            tenant_id=tenant_id,
+            display_name=None,
+            logo_path=None,
+            accent_colour=None,
+            not_found_message=None,
+            allowed_upload_formats=None,
+            conversation_retention_days=None,
+            updated_by=None,
+            updated_at=tenant.created_at,
+        )
+    return ts
+
+
+@router.patch("/tenants/{tenant_id}/settings", response_model=TenantSettingsResponse)
+async def update_tenant_settings(
+    tenant_id: UUID,
+    request: TenantSettingsUpdateSuperAdmin,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update tenant settings (super_admin can change everything including storage_quota_mb)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    await set_tenant_context(db, str(tenant_id))
+
+    payload = request.model_dump(exclude_unset=True)
+    ts = await TenantSettingsService.update_settings(
+        db=db,
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        is_super_admin=True,
+        payload=payload,
+    )
+    return ts
+
+
+@router.post("/tenants/{tenant_id}/settings/logo", response_model=LogoUploadResponse)
+async def upload_tenant_logo(
+    tenant_id: UUID,
+    file: bytes = File(...),
+    filename: str = "logo.png",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload tenant logo (super_admin)."""
+    from fastapi import File
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    await set_tenant_context(db, str(tenant_id))
+
+    ts = await TenantSettingsService.update_settings(
+        db=db,
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        is_super_admin=True,
+        payload={},
+        logo_file=file,
+        logo_filename=filename,
+    )
+    return LogoUploadResponse(
+        path=ts.logo_path,
+        size_bytes=len(file),
+        mime_type=magic.from_buffer(file, mime=True),
+    )
