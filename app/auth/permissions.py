@@ -48,6 +48,10 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/versions"): {"client_admin"},
     ("GET", "/documents/searchable/approved"): {"client_admin", "employee"},
 
+    # Search — tenant users only (super admin DENIED)
+    ("POST", "/search"): {"client_admin", "employee"},
+    ("GET", "/search/suggest"): {"client_admin", "employee"},
+
     # Feedback — tenant users only (super admin DENIED)
     ("POST", "/answers/{answer_id}/feedback"): {"client_admin", "employee"},
     ("PATCH", "/answers/{answer_id}/feedback"): {"client_admin", "employee"},

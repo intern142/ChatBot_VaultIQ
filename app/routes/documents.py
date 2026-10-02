@@ -13,6 +13,7 @@ from app.auth.permissions import require_roles_with_tenant
 from app.models.document import Document
 from app.models.user import User
 from app.models.tenant import Tenant
+from app.models.search import IndexingJob
 from app.schemas.document import (
     ApprovalDecisionRequest,
     DocumentResponse,
@@ -250,6 +251,16 @@ async def upload_document(
         if file_saved:
             delete_document_file(tenant_uuid, document_id, stored_filename)
         raise
+
+    # Enqueue indexing job (will be processed when extraction is available)
+    indexing_job = IndexingJob(
+        tenant_id=uuid.UUID(tenant_id),
+        document_id=document_id,
+        status='pending',
+        attempts=0,
+    )
+    db.add(indexing_job)
+    await db.commit()
 
     return document
 

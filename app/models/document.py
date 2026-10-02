@@ -38,6 +38,7 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # VQ-202: approval workflow and document versions.
     #
@@ -74,6 +75,9 @@ class Document(Base):
     # (VQ-202), so the path has to be named explicitly.
     uploader: Mapped['User'] = relationship(
         'User', back_populates='documents', foreign_keys=[uploaded_by]
+    )
+    chunks: Mapped[list['DocumentChunk']] = relationship(
+        'DocumentChunk', back_populates='document', cascade='all, delete-orphan'
     )
 
     __table_args__ = (

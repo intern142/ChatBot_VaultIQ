@@ -6,6 +6,7 @@ from app.models.invite import Invite
 from app.models.audit_log import AuditLog
 from app.models.reset_code import ResetCode
 from app.models.feedback import Answer, AnswerFeedback
+from app.models.search import DocumentChunk, IndexingJob
 
 __all__ = [
     "Tenant",
@@ -17,4 +18,6 @@ __all__ = [
     "ResetCode",
     "Answer",
     "AnswerFeedback",
+    "DocumentChunk",
+    "IndexingJob",
 ]
