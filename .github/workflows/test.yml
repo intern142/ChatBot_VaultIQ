@@ -2,13 +2,27 @@ name: Tests
 
 on:
   push:
-    branches: [vq-105-tenant-login, vq-103-tenant-middleware, vq-104-storage-namespace, vq-102-rls, vq-106-permissions, vq-107-tenant-lifecycle, vq-110-isolation-suite-v1, vq-201-tenant-upload, vq-202-approval-versioning, vq-203]
+    branches:
+      - vq-105-tenant-login
+      - vq-103-tenant-middleware
+      - vq-104-storage-namespace
+      - vq-102-rls
+      - vq-106-permissions
+      - vq-107-tenant-lifecycle
+      - vq-110-isolation-suite-v1
+      - vq-201-tenant-upload
+      - vq-202-approval-versioning
+      - vq-203
+      - vq-301-password-reset
+      - vq-304
+      - vq-210-tenant-cache
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -45,13 +59,13 @@ jobs:
             sleep 2
           done
 
-      - name: Run migrations
+      - name: Run migrations (admin/superuser identity)
         env:
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
         run: |
           alembic upgrade head
 
-- name: Grant app user permissions
+      - name: Grant app user permissions
         env:
           PGPASSWORD: vaultiq_secret
         run: |
@@ -60,10 +74,10 @@ jobs:
           psql -h localhost -U vaultiq -d vaultiq -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vaultiq_app;"
           psql -h localhost -U vaultiq -d vaultiq -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vaultiq_app;"
 
-      - name: Run tests
+      - name: Run tests (as vaultiq_app, NOBYPASSRLS)
         env:
           ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
-          DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
+          APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           JWT_SECRET: test-secret
         run: |
