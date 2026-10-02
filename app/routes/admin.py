@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.exc import IntegrityError
@@ -86,6 +86,16 @@ async def create_tenant(
             status_code=status.HTTP_409_CONFLICT,
             detail="Tenant short code already exists",
         )
+
+    # Create search index partition for this tenant
+    partition_name = f"document_chunks_tenant_{str(tenant.id).replace('-', '_')}"
+    await db.execute(
+        text(f"""
+            CREATE TABLE IF NOT EXISTS {partition_name} 
+            PARTITION OF document_chunks 
+            FOR VALUES IN ('{tenant.id}')
+        """)
+    )
 
     # Set tenant context so the audit entry passes RLS even under vaultiq_app
     await set_tenant_context(db, str(tenant.id))
