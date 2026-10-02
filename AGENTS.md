@@ -111,12 +111,12 @@ We sell this to many companies at once from one installation. Each company is a 
 - **Current branch:** `vq-304` (VQ-304 in progress)
 - **Sprint 1 + Sprint 2 merged to main:** VQ-101, 102, 103, 104, 105, 106, 107, 110 ✅
 - **Sprint 3 Active PRs:**
-  - VQ-201 (PR #10) — Document upload, quota, OCR — CI failing (db_engine fix needed)
-  - VQ-202 (PR #11) — Approval & versioning — CI failing (db_engine fix needed)
-  - VQ-203 (PR #13) — Processing queue — No CI checks
-  - VQ-301 (PR #14) — User management — CI failing (db_engine fix needed)
+  - VQ-201 (PR #10) — Document upload, quota, OCR — **CI fix pushed** (db_engine fix applied)
+  - VQ-202 (PR #11) — Approval & versioning — **CI fix pushed** (db_engine fix applied)
+  - VQ-203 (PR #13) — Processing queue — **CI fix pushed** (db_engine fix applied)
+  - VQ-301 (PR #14) — User management — **CI fix pushed** (db_engine fix applied)
 - **VQ-304 (this branch)** — Tenant settings storage & validation — **Gates 1-6 ✅, Gate 7 pending**
-  - Branch: `vq-304` (pushed to origin)
+  - Branch: `vq-304` (pushed to origin, commit c9a8642)
   - Migration: `tenant_settings` table + RLS ✅
   - Model: `app/models/tenant_settings.py` ✅, relationship on Tenant ✅
   - Schemas: `app/schemas/tenant_settings.py` ✅ (ClientAdmin + SuperAdmin + Public)
@@ -126,8 +126,10 @@ We sell this to many companies at once from one installation. Each company is a 
   - Gate 3: 166 total tests passing (137 + 29 VQ-304)
   - Gate 4: Self-review documented in `VQ304_SELF_REVIEW.md`
   - Gate 6: Live container verified — 29/29 VQ-304 tests pass against Docker PG + uvicorn
+- **VQ-210** — Tenant-scoped answer cache — **Gates 1-6 ✅, Gate 7 pending** (branch `vq-210-tenant-cache`, commit 0a425e0)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
 - Test suite on vq-304: **166 passed** (137 + 29 VQ-304)
+- Test suite locally (superuser): **164 passed, 2 failed** (2 known defect #2 failures)
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -144,6 +146,18 @@ We sell this to many companies at once from one installation. Each company is a 
      INSERT, so it would be a 500 even if login succeeded)
    Super Admin is the only role that can create a tenant, so this blocks VQ-202's live
    evidence as well as VQ-201's.
+
+## CI Fixes Applied (2026-10-02)
+Fixed "db_engine failure" on 4 branches by correcting test environment variables:
+- **Root cause:** Workflow files set `DATABASE_URL` but conftest.py expects `APP_DATABASE_URL` for the NOBYPASSRLS role (`vaultiq_app`).
+- **Fix:** Updated `.github/workflows/test.yml` on 4 branches to use `APP_DATABASE_URL` (vaultiq_app) and `ADMIN_DATABASE_URL` (superuser) correctly.
+- **Branches fixed & pushed:**
+  - `vq-201-tenant-upload` (f4ee282)
+  - `vq-202-approval-versioning` (a5ef7f1)
+  - `vq-301-password-reset` (ff4b683)
+  - `vq-203` (88dcacd)
+- Also added missing branches (vq-304, vq-210-tenant-cache) to workflow trigger list.
+- conftest.py updated to use `ADMIN_DATABASE_URL`/`APP_DATABASE_URL` env vars with CI defaults (port 5432), `NullPool`, and restored `app_db_conn` fixture.
 
 ## Blockers
 - NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
@@ -720,7 +734,7 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204 → VQ-210 → VQ-301 → VQ-3
 - Extraction metadata persisted (text, method, status, pages, truncated)
 - RLS policies written for the app-role (`vaultiq_app`, NOBYPASSRLS) — **but never actually exercised; see Known Defects**
 - Docker image with offline runtime (libmagic, poppler, tesseract, olefile)
-- CI updated with OCR_REQUIRED=true, internal network verification
+- **CI updated with OCR_REQUIRED=true, internal network verification; CI db_engine fix applied (2026-10-02)**
 - Full test suite: 163 tests passing (216s) — **as the RLS superuser**
 
 **Gate 6 Evidence — Live Container (WITHDRAWN, to be re-run):**
@@ -812,8 +826,11 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
+- **166** — vq-304 branch (`vq-304`, commit c9a8642), 137 + 29 VQ-304 tests.
+- **164** — local run with superuser for both identities (164 passed, 2 failed — known defect #2).
 
-Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
+Both runs on main/VQ-201 connect as the `vaultiq` superuser, so neither exercises RLS.
+Local vq-304 run uses superuser for both identities (known defect #2).
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
