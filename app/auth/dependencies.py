@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db, set_tenant_context
+from app.database import apply_token_context, get_db, set_tenant_context
 from app.auth.jwt import decode_token
 from app.models.user import User
 from app.models.session import Session
@@ -33,6 +33,8 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
         )
+
+    await apply_token_context(db, payload)
 
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
@@ -76,6 +78,11 @@ async def get_current_user_with_tenant(
             detail="Invalid token",
         )
 
+    user_id = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    role = payload.get("role")
+    await apply_token_context(db, payload)
+
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
 
@@ -84,10 +91,6 @@ async def get_current_user_with_tenant(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session revoked" if session else "Invalid token",
         )
-
-    user_id = payload.get("sub")
-    tenant_id = payload.get("tenant_id")
-    role = payload.get("role")
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()

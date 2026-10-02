@@ -14,12 +14,18 @@ on:
       - vq-202-approval-versioning
       - vq-203
       - vq-301-password-reset
+      - vq-304
+      - vq-210-tenant-cache
+      - vq-204
+      - vq-305
+      - vq-302
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:

@@ -34,6 +34,15 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
 
+    # VQ-202: approval workflow. An employee may upload a pending version but must
+    # not be able to make content searchable, so approve/reject and the version
+    # history are client_admin only. Reading the approved set is open to both,
+    # because that is the corpus an employee's question is answered from.
+    ("POST", "/documents/{document_id}/approve"): {"client_admin"},
+    ("POST", "/documents/{document_id}/reject"): {"client_admin"},
+    ("GET", "/documents/{document_id}/versions"): {"client_admin"},
+    ("GET", "/documents/searchable/approved"): {"client_admin", "employee"},
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"): {"super_admin"},
     ("GET", "/admin/tenants"): {"super_admin"},
