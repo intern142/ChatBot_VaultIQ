@@ -14,12 +14,15 @@ on:
       - vq-202-approval-versioning
       - vq-203
       - vq-301-password-reset
+      - vq-304
+      - vq-210-tenant-cache
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -74,7 +77,7 @@ jobs:
       - name: Run tests (as vaultiq_app, NOBYPASSRLS)
         env:
           ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
-          DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
+          APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           JWT_SECRET: test-secret
         run: |
