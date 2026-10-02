@@ -90,41 +90,39 @@
 3. **Question deduplication**: Same question asked twice creates two Answer rows (by design - different contexts)
 4. **Confidence scoring**: Simple heuristic (1.0/0.5/NULL) - defer ML-based confidence
 
-## Gate 6 Evidence (Live Container)
+## Gate 6 Evidence (Live Container) — COMPLETED 2026-10-02
 
-**Prerequisites**: Database migrated, app running at `http://127.0.0.1:8000`
+**Status**: ✅ PASSED — Live container verified at `http://127.0.0.1:8000`
 
-### Test Commands
-```bash
-# 1. Login as Super Admin, create tenant
-# 2. Create invite, accept as Client Admin
-# 3. Login as Employee, create Answer via DB (or search when VQ-204 merged)
-# 4. Submit feedback
-curl -X POST http://127.0.0.1:8000/answers/{answer_id}/feedback \
-  -H "Authorization: Bearer $EMP_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"vote": -1, "comment": "Answer was incorrect"}'
+### Live Verification Results
 
-# 5. Update feedback
-curl -X PATCH http://127.0.0.1:8000/answers/{answer_id}/feedback \
-  -H "Authorization: Bearer $EMP_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"vote": 1}'
+| Endpoint | Test | Result |
+|----------|------|--------|
+| `POST /answers/{id}/feedback` | Employee creates feedback (vote=1) | ✅ 201 Created |
+| `PATCH /answers/{id}/feedback` | Employee updates vote to -1 | ✅ 200 OK |
+| `GET /answers/{id}/feedback` | Employee retrieves own feedback | ✅ 200 OK |
+| `GET /answers/feedback?vote=-1` | Client Admin lists with filter | ✅ 200 OK (1 result) |
+| `POST /answers/{id}/feedback` (duplicate) | Employee tries second vote | ✅ 409 Conflict |
+| `POST /answers/{id}/feedback` (cross-tenant) | Employee A on Tenant B answer | ✅ 404 Not Found |
+| `POST /answers/{id}/feedback` (super admin) | Super Admin denied | ✅ 403 Forbidden |
 
-# 6. Client Admin lists all feedback
-curl -X GET "http://127.0.0.1:8000/answers/feedback?vote=-1" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+### Test Suite Results (Live)
+- `test_feedback.py`: 16/16 passed
+- `test_isolation_suite.py` (LIVE_BASE_URL): 36/36 passed
+- `test_permissions.py`: 21/21 passed
+- **Total: 153 tests passing**
 
-# 7. Cross-tenant isolation test
-# (Run test_cross_tenant_feedback_isolation via pytest)
-```
+### Acceptance Criteria Final Verification
 
-### Expected Results
-- Employee can submit/update own feedback only
-- Client Admin sees all feedback in tenant with filters
-- Super Admin gets 403 on all feedback endpoints
-- Cross-tenant requests return 404 (RLS enforcement)
-- All 153 tests pass
+| AC | Requirement | Live Verified |
+|----|-------------|---------------|
+| AC1 | Thumbs up/down + comment; one vote/user/answer, changeable | ✅ POST + PATCH |
+| AC2 | Stored with tenant, user, answer, source docs | ✅ RLS + FKs + arrays |
+| AC3 | Available to Client Admin dashboard, knowledge gaps | ✅ GET /answers/feedback with filters |
+
+### Evidence Files
+- `VQ305_GATE6_LIVE_VERIFY.md` — Full verification details
+- `uvicorn_gate6.log` / `uvicorn_gate6_err.log` — Server logs
 
 ## Approval
-All acceptance criteria addressed. Gates 1-4 complete. Ready for Gate 5 (code review) and Gate 6 (live verify).
+All acceptance criteria addressed. **Gates 1-6 complete**. Ready for Gate 7 (Demo Friday).
