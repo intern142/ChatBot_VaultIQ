@@ -266,7 +266,7 @@ async def logout(
         session.revoked_at = datetime.now(timezone.utc)
         await db.commit()
 
-return MessageResponse(detail="Logged out")
+    return MessageResponse(detail="Logged out")
 
 
 # ---------------------------------------------------------------------------
