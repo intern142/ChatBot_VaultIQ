@@ -65,3 +65,15 @@ ISOLATION_COVERED_ROUTES = {
 def normalize_path(path: str) -> str:
     """Normalize path params to manifest format."""
     return path
+    (GET, /dashboard/overview),
+    (GET, /dashboard/overview/30d),
+    (GET, /dashboard/documents),
+    (GET, /dashboard/users),
+    (GET, /dashboard/audit),
+    (GET, /dashboard/feedback),
+    (GET, /dashboard/knowledge-gaps),
+    (GET, /dashboard/export/documents),
+    (GET, /dashboard/export/users),
+    (GET, /dashboard/export/audit),
+    (GET, /dashboard/export/feedback),
+]

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from app.routes.auth import router as auth_router
 from app.routes.documents import router as documents_router
 from app.routes.admin import router as admin_router
-from app.routes.invite import router as invite_router
+from app.routes.invite import router as invite_router\nfrom app.routes.dashboard import router as dashboard_router
 from app.routes.users import router as users_router
 from app.routes.feedback import router as feedback_router
 from app.routes.search import router as search_router
