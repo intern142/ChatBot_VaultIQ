@@ -32,12 +32,11 @@ async def get_db() -> AsyncSession:
 
 
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
-    """Set tenant context for RLS, transaction-scoped so it auto-resets on commit.
+    """Set tenant context for RLS using set_config (transaction-scoped, auto-resets).
 
-    asyncpg cannot bind parameters in SET, so the literal-interpolation form
-    f"SET LOCAL app.current_tenant = '{id}'" was the previous approach. That put a
-    caller-influenced value into SQL text. set_config takes the value as a bound
-    parameter, so the tenant id never becomes part of the statement.
+    set_config takes a bound parameter, unlike SET. The previous version built
+    the statement with f-string interpolation because asyncpg cannot bind
+    parameters inside SET, which put a caller-influenced value into SQL text.
     """
     await session.execute(
         text("SELECT set_config('app.current_tenant', :tenant_id, true)"),
@@ -46,70 +45,7 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
 
 
 async def clear_tenant_context(session: AsyncSession) -> None:
-    """Clear tenant context (not strictly needed with SET LOCAL, but explicit)."""
-    await session.execute(text("SET LOCAL app.current_tenant = ''"))
-
-
-async def set_platform_context(session: AsyncSession) -> None:
-    """Set platform context so Super Admin rows are reachable under RLS.
-
-    Known Defect #2. Platform accounts have tenant_id IS NULL (VQ-101 AC3), and
-    the platform_account_access policies in migrations 008/009 require
-    app.platform_access = 'on' before such a row is visible. Only call this on a
-    path that has already established the caller is a Super Admin - it is the
-    one context that deliberately reaches outside any tenant.
-
-    The tenant context is cleared first on purpose. The policy also requires
-    that no tenant be in context, so that setting both can never widen
-    visibility rather than just failing. Clearing first means the policy's
-    conditions are satisfied by construction on a platform path.
-    """
-    await session.execute(text("SELECT set_config('app.current_tenant', '', true)"))
-    await session.execute(text("SELECT set_config('app.platform_access', 'on', true)"))
-
-
-async def set_reset_code_context(session: AsyncSession, code_hash: str) -> None:
-    """Allow a SELECT of the one reset_codes row matching this hash.
-
-    The password-reset endpoint is unauthenticated by design, so it has no
-    tenant context. The `reset_code_lookup` policy in migration 27905f137fd4
-    grants exactly one capability to a no-context session: finding the row
-    whose stored hash equals the hash the caller already holds. It is SELECT
-    only and cannot consume the code.
-
-    The endpoint reads `tenant_id` from the row this unlocks, establishes the
-    tenant context from that, and performs the claim under it. The context is
-    therefore never derived from caller input.
-    """
+    """Clear tenant context (not strictly needed with set_config, but explicit)."""
     await session.execute(
-        text("SELECT set_config('app.reset_code_hash', :code_hash, true)"),
-        {"code_hash": code_hash},
+        text("SELECT set_config('app.current_tenant', '', true)"),
     )
-
-
-async def apply_token_context(session: AsyncSession, payload: dict) -> None:
-    """Set the RLS context implied by a token payload.
-
-    Every route that resolves a token calls this, rather than each one deciding
-    for itself. The reason is a security property, not tidiness: the decision
-    has to be identical everywhere, because a path that quietly forgets to set
-    the platform context produces a Super Admin 401, and a path that guesses it
-    wrong produces a leak. One function is one thing to review.
-
-    The payload is a decoded but not-yet-authorised token, so the role claim
-    here is a hint and not a permission. It is safe to act on because the RLS
-    policy it selects still requires the row itself to be tenant_id IS NULL AND
-    role = 'super_admin'. Presenting a tenant token with a forged super_admin
-    claim therefore does not reach platform rows: the session and user lookups
-    that follow are keyed on this token's own sub and jti, which are tenant
-    rows, and a tenant row does not match the platform policy. The outcome is a
-    401, never additional visibility.
-
-    A tenant token can never select the platform context by omitting its tenant,
-    because the role claim is required as well as the missing tenant.
-    """
-    tenant_id = payload.get("tenant_id")
-    if tenant_id:
-        await set_tenant_context(session, str(tenant_id))
-    elif payload.get("role") == "super_admin":
-        await set_platform_context(session)

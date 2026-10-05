@@ -38,6 +38,8 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/preview"): {"client_admin", "employee"},
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
+    ("GET", "/documents/{document_id}/status"): {"client_admin", "employee"},
+    ("POST", "/documents/{document_id}/reprocess"): {"client_admin"},
 
 # VQ-202: approval workflow. An employee may upload a pending version but must
     # not be able to make content searchable, so approve/reject and the version

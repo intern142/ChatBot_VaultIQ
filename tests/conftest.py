@@ -315,6 +315,19 @@ def token_b_emp(tenant_b):
     )
 
 
+# Aliases for test_processing.py compatibility
+@pytest.fixture
+def app_session(app_db_session):
+    """Alias for app_db_session - tests use 'app_session' fixture name."""
+    return app_db_session
+
+
+@pytest.fixture
+def token_a(token_a_admin):
+    """Alias for token_a_admin - tests use 'token_a' fixture name."""
+    return token_a_admin
+
+
 @pytest_asyncio.fixture(scope="function")
 async def super_admin_token(db_conn, db_engine):
     # Both db_conn and db_engine truncate on setup. Requesting both here forces

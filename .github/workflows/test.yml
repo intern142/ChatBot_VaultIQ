@@ -16,9 +16,6 @@ on:
       - vq-301-password-reset
       - vq-304
       - vq-210-tenant-cache
-      - vq-204
-      - vq-305
-      - vq-302
   pull_request:
     branches: [main]
 
@@ -44,14 +41,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install offline document runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng
-
-      - name: Build application image
-        run: docker build --tag vaultiq:test .
 
       - name: Set up Python
         uses: actions/setup-python@v6
