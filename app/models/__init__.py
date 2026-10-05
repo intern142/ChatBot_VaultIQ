@@ -4,6 +4,6 @@ from app.models.document import Document
 from app.models.session import Session
 from app.models.invite import Invite
 from app.models.audit_log import AuditLog
-from app.models.tenant_settings import TenantSettings
+from app.models.answer_cache import AnswerCache
 
-__all__ = ["Tenant", "User", "Document", "Session", "Invite", "AuditLog", "TenantSettings"]
+__all__ = ["Tenant", "User", "Document", "Session", "Invite", "AuditLog", "AnswerCache"]
