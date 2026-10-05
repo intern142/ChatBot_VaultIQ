@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db, set_tenant_context
+from app.database import apply_token_context, get_db, set_tenant_context
 from app.auth.jwt import decode_token
 from app.models.user import User
 from app.models.session import Session
@@ -34,6 +34,8 @@ async def get_current_user(
             detail="Invalid token",
         )
 
+    await apply_token_context(db, payload)
+
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
 
@@ -51,6 +53,21 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
+        )
+
+    # VQ-301 AC3: a deactivated user's existing tokens stop working here.
+    #
+    # Deliberately a separate check from the session lookup rather than relying on
+    # session revocation alone. Deactivation does revoke sessions in the same
+    # transaction, so in normal operation this is belt and braces - but the two
+    # checks fail for different reasons and this one does not depend on the
+    # revocation write having succeeded, committed, or not been rolled back by a
+    # failure after it. The status and body match the revoked-session case so the
+    # two are indistinguishable from outside.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked" if session else "Invalid token",
         )
 
     return user
@@ -76,6 +93,11 @@ async def get_current_user_with_tenant(
             detail="Invalid token",
         )
 
+    user_id = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    role = payload.get("role")
+    await apply_token_context(db, payload)
+
     result = await db.execute(select(Session).where(Session.id == jti))
     session = result.scalar_one_or_none()
 
@@ -85,10 +107,6 @@ async def get_current_user_with_tenant(
             detail="Session revoked" if session else "Invalid token",
         )
 
-    user_id = payload.get("sub")
-    tenant_id = payload.get("tenant_id")
-    role = payload.get("role")
-
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -96,6 +114,13 @@ async def get_current_user_with_tenant(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
+        )
+
+    # VQ-301 AC3, same reasoning and same response as in get_current_user above.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked" if session else "Invalid token",
         )
 
     if role == "super_admin":

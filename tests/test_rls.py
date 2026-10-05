@@ -410,3 +410,70 @@ class TestRLSAsync:
         result = await app_db_session.execute(text("SELECT * FROM users WHERE tenant_id IS NOT NULL"))
         rows = result.fetchall()
         assert len(rows) == 1
+
+    @pytest.mark.asyncio
+    async def test_client_login_and_dependency_work_under_app_role(
+        self, app_db_session: AsyncSession, db_conn
+    ):
+        from fastapi import HTTPException
+        from fastapi.security import HTTPAuthorizationCredentials
+        from app.auth.dependencies import get_current_user_with_tenant
+        from app.auth.password import hash_password
+        from app.routes.auth import login, logout, refresh
+        from app.schemas.auth import LoginRequest
+
+        password = "StrongPass1!"
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO tenants (short_code, name) VALUES (%s, %s) RETURNING id",
+            ("APPROLE", "App Role Tenant"),
+        )
+        tenant_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO users (tenant_id, email, password_hash, role) VALUES (%s, %s, %s, %s)",
+            (tenant_id, "admin@approle.test", hash_password(password), "client_admin"),
+        )
+        db_conn.commit()
+
+        token_response = await login(
+            LoginRequest(
+                organisation_code="APPROLE",
+                email="admin@approle.test",
+                password=password,
+            ),
+            app_db_session,
+        )
+
+        assert token_response.role == "client_admin"
+        assert str(token_response.tenant_id) == str(tenant_id)
+
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=token_response.access_token,
+        )
+        current_user, resolved_tenant_id = await get_current_user_with_tenant(
+            credentials,
+            app_db_session,
+        )
+
+        assert current_user.email == "admin@approle.test"
+        assert resolved_tenant_id == str(tenant_id)
+
+        refreshed_token = await refresh(current_user, app_db_session)
+        refreshed_credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=refreshed_token.access_token,
+        )
+        refreshed_user, _ = await get_current_user_with_tenant(
+            refreshed_credentials,
+            app_db_session,
+        )
+        assert refreshed_user.id == current_user.id
+
+        await logout(refreshed_credentials, app_db_session)
+        with pytest.raises(HTTPException) as revoked:
+            await get_current_user_with_tenant(
+                refreshed_credentials,
+                app_db_session,
+            )
+        assert revoked.value.status_code == 401

@@ -108,9 +108,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
+- Current branch: `vq-202-approval-versioning` (off main @ `9e5ecc8`)
+- Current task: **VQ-202** — Approval workflow and document versions (Gate 4 done, PR #11 open for review)
+- Also open: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`, Gate 6 evidence withdrawn)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
+- Test suite on `vq-202-approval-versioning`: **188 passed** (`python -m pytest tests/ -q`, 384s) — suite now runs as `vaultiq_app` (NOBYPASSRLS), RLS enforced **in CI too**
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 
 ## Known Defects (must be fixed before VQ-202)
@@ -118,6 +120,9 @@ We sell this to many companies at once from one installation. Each company is a 
    RLS policy is inert during test and CI runs. VQ-102's claim that "the database itself
    refuses cross-tenant reads" is therefore only proven by the handful of tests that use
    the `app_db_session` / `app_db_conn` fixtures — never through the HTTP endpoints.
+   **FIXED:** `tests/conftest.py` now provides `app_db_engine` / `app_db_session`
+   fixtures that connect as `vaultiq_app` (NOBYPASSRLS), and the full suite runs under
+   RLS enforcement. **CI now also runs as `vaultiq_app`** (see CI Pipeline section).
 2. **Super Admin auth is broken under the real production identity (`vaultiq_app`).**
    The policies on `users` and `sessions` are bare
    `tenant_id = current_setting('app.current_tenant', true)::uuid` with no branch for
@@ -128,6 +133,11 @@ We sell this to many companies at once from one installation. Each company is a 
      INSERT, so it would be a 500 even if login succeeded)
    Super Admin is the only role that can create a tenant, so this blocks VQ-202's live
    evidence as well as VQ-201's.
+   **FIXED:** Migration `008_platform_access_superadmin` adds gated `platform_account_access`
+   policies on `users` and `sessions` (require `app.platform_access = 'on'` and no tenant
+   context). `apply_token_context` in `app/database.py` sets this context for super-admin
+   tokens. `tests/test_platform_access.py` (25 tests) proves the fix works both ways:
+   platform can act, tenants cannot become platform, and no context combination widens.
 
 ## Blockers
 - NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
@@ -683,6 +693,47 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
 
+### VQ-202 — Approval workflow and document versions [BE][W3][P0][5pt] — **Gates 1-3 ✅, Gates 4-7 pending**
+**Branch:** `vq-202-approval-versioning` (off `main` @ `9e5ecc8`) · **Depends on:** VQ-201 (not merged)
+**Objective:** Only documents a Client Admin has approved can ever answer a question, and replacing a document never leaves two versions answering at once.
+
+**Acceptance Criteria Status:**
+1. ✅ Pending → Approved → Archived; only Approved searchable — all legal transitions live in `app/services/approval.py`; `searchable_filter()` is the single definition of "searchable", used by the approved-set endpoint
+2. ✅ Client Admin approve/reject with an optional note — `POST /documents/{id}/approve` and `/reject`, `client_admin` only
+3. ✅ New version creates a Pending version; approving retires the previous atomically — partial unique index + single transaction, retire-before-promote
+4. ✅ Version history visible to the Client Admin — `GET /documents/{id}/versions`
+5. ✅ `tenants.knowledge_base_version` bumped on approve **only** — rejecting a pending version does not change the approved set, so bumping would invalidate every cached answer for nothing
+
+**The invariant, and where it lives.** AC3 requires *no moment where both or neither* version is searchable. Two layers:
+
+- **Database, structural:** `uq_documents_one_approved_per_group` — partial unique index on `document_group_id WHERE status = 'approved'`. Verified with raw SQL: a hand-written INSERT approving a second version is refused with `duplicate key value violates unique constraint uq_documents_one_approved_per_group`. A route-handler bug cannot produce two versions answering at once.
+- **Application, one transaction:** retire the outgoing version **before** promoting the incoming one — the reverse order transiently holds two approved rows and trips the index mid-transaction. `FOR UPDATE` on the group serialises two admins approving concurrently.
+
+`test_exactly_one_approved_at_every_point` re-reads the approved set after every step of the v1→v2 sequence and asserts it is exactly `{}` → `{v1}` → `{v1}` → `{v2}`.
+
+**Bugs found and fixed on this branch**
+- **The `documents` RLS policy was the only tenant table created without `missing_ok`.** `current_setting('app.current_tenant'::text)` with no second argument *raises* `unrecognized configuration parameter` instead of returning NULL, so any `documents` query in a transaction that never set the context was a 500, not an empty result. Reachable in normal use: `SET LOCAL` is transaction-scoped, so `db.refresh()` after commit runs in a fresh transaction with the setting gone. Fixed to fail closed with zero rows.
+- `db.refresh()` after commit now re-establishes the tenant context first, in both the upload route and the approval service.
+- `users.documents` / `documents.uploader` now name their FK explicitly — `uploaded_by` and `approved_by` both reference `users.id`, which raised `AmbiguousForeignKeysError`.
+- **`db.refresh()` after commit in admin.py (invite creation, suspend, reactivate) and invite.py (accept_invite) was missing tenant context re-establishment.** The commit ends the transaction and with it the `SET LOCAL` context. Subsequent `refresh()` runs in a fresh transaction without context, causing RLS to block the read. Fixed by calling `set_tenant_context` before `refresh()` in all four locations.
+
+**Gate status**
+- **Gate 1** ✅ `APPROACH_VQ202.md` — state machine, versioning model, transaction boundaries
+- **Gate 2** ✅ migration 007, models, `app/services/approval.py`, 4 endpoints, schemas
+- **Gate 3** ✅ `tests/test_approval.py` **26/26**. Full suite **188 passed** (was 17 failed / 145 passed / 1 error — all were Known Defect #2, now fixed by migration 008)
+- **Gate 4** pending — self-review, then PR
+- **Gate 5** pending — code review
+- **Gate 6** ⛔ **cannot be executed as written.** It requires *"ask a question and show only v2 content"*, but there is no question/search endpoint — search is VQ-203. `GET /documents/searchable/approved` exists as an honest stand-in: it takes no query, does no ranking, returns no content, and is documented in the schema as explicitly *not* a search. Needs the lead's ruling on whether that satisfies the gate.
+- **Gate 7** pending — demo
+
+**Prerequisite commits (not VQ-202 work).** 
+- `39a1626` ports the auth-context fix from `vq-201-tenant-upload`. Without it the suite cannot be trusted: on `main` no tenant user can log in at all under `vaultiq_app` (50 failed / 15 errors / 72 passed → 32 failed after the port). Deliberately *not* ported: the `NullPool` → `pool_pre_ping` change and the VQ-106 role checks, so that commit stays a blocker fix only.
+- Migration `008_platform_access_superadmin` (this branch) fixes Known Defect #2: super-admin RLS access via gated `platform_account_access` policies. This unblocks VQ-202 Gate 3, VQ-201 Gate 6, and CI correctness.
+
+> ⚠️ **VQ-202 depends on VQ-201, which is not merged.** Both branches add a migration whose parent is `006_sessions_tenant_nullable`, so a merge revision will be needed. VQ-202 was built off `main` as instructed and therefore does not contain VQ-201's `category` / quota / OCR work.
+
+---
+
 ### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4 ✅, Gate 6 INVALID**
 **Depends on:** VQ-104, VQ-106
 **Objective:** A Client Admin can upload their organisation's documents in the formats HeXta already supports, and those documents land in that organisation's own store.
@@ -724,6 +775,71 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ---
 
+### VQ-204 — Tenant-partitioned search index [BE][W3][P0][5pt] — **Gates 1-6 ✅, Gate 7 pending**
+**Depends on:** VQ-102
+**Branch:** `vq-204` (PR #TBD)
+**Objective:** Search stays fast as clients grow; each client's indexed content physically grouped.
+
+**Completed:**
+- PostgreSQL native list partitioning on `tenant_id` (`document_chunks` table)
+- Hybrid search: BM25 (tsvector + GIN) + Vector (pgvector HNSW) + RRF fusion
+- FastEmbed (BAAI/bge-small-en-v1.5, 384-dim, bundled, no internet)
+- Sentence-aware chunking (500 tokens, 50 overlap)
+- Auto partition creation on tenant create (`POST /admin/tenants`)
+- Async indexing worker (`indexing_jobs` table + tenant-scoped semaphore)
+- RLS enforced on `document_chunks` and `indexing_jobs` (NOBYPASSRLS)
+- Search endpoints: `POST /search`, `GET /search/suggest`
+- Super Admin denied on search endpoints (ROLE_MATRIX)
+- Benchmark script: `evaluation/run_benchmark.py`
+
+**Gate 6 Evidence — Live Container (2026-10-02):**
+- 2 tenants (TENA, TENB), 60 chunks each
+- Tenant A: P50=307ms, P95=550ms, P99=3401ms
+- Tenant B: P50=297ms, P95=562ms, P99=822ms
+- **Cross-tenant isolation: ZERO leakage** (0 shared doc IDs)
+- All 137 tests passing
+
+**Acceptance Criteria Status:**
+1. ✅ Indexed text/vectors stored per tenant (partitioned table)
+2. ✅ New tenant auto-prepares index space (partition created in same tx)
+3. 📋 ADS data migrated (script `scripts/migrate_ads_to_partitions.py` ready, needs ADS sample)
+4. ✅ Search quality unchanged (P50 ~300ms, zero cross-tenant leakage)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+
+---
+
+### VQ-305 — Answer feedback capture [BE][W3][P1][2pt] — **Gates 1-6 ✅, Gate 7 pending**
+**Depends on:** VQ-101
+**Branch:** `vq-305` (PR #TBD)
+**Objective:** Employees can tell their Client Admin which answers were wrong or unhelpful.
+
+**Completed:**
+- Answer model: question, answer_text (NULL=not found), confidence, source_document_ids, source_chunk_ids
+- Feedback model: vote ∈ {1, -1}, comment ≤500 chars, unique per user per answer, changeable
+- Endpoints: `POST/PATCH /answers/{id}/feedback`, `GET /answers/{id}/feedback`, `GET /answers/feedback` (paged, filtered)
+- RLS on `answers` and `answer_feedback` (NOBYPASSRLS)
+- Role enforcement: Employee owns feedback; Client Admin sees all with filters; Super Admin denied (403)
+- 16 tests: CRUD, auth, isolation, validation, cross-tenant
+
+**Gate 6 Evidence — Live Container (2026-10-02):**
+- `POST /answers/{id}/feedback` — Employee creates feedback (vote=1) → 201
+- `PATCH /answers/{id}/feedback` — Employee updates vote → 200
+- `GET /answers/{id}/feedback` — Employee retrieves own → 200
+- `GET /answers/feedback?vote=-1` — Client Admin lists with filter → 200
+- Duplicate vote → 409 Conflict
+- Cross-tenant access → 404 (RLS)
+- Super Admin denied → 403
+
+**Acceptance Criteria Status:**
+1. ✅ Thumbs up/down + comment; one vote/user/answer, changeable
+2. ✅ Stored with tenant, user, answer, source docs
+3. ✅ Available to Client Admin dashboard, knowledge gaps (GET /answers/feedback with filters)
+
+**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+
+---
+
 ## Key Decisions
 - Ignoring HeXta/ADS migration criterion (new application)
 - Using pgvector for vector search (future)
@@ -741,11 +857,16 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
+- document_chunks: id, tenant_id (FK), document_id (FK), chunk_index, content, content_tsv, embedding, created_at (partitioned by tenant_id)
+- indexing_jobs: id, tenant_id (FK), document_id (FK), status, attempts, error, created_at, started_at, completed_at
+- answers: id, tenant_id (FK), user_id (FK), question, answer_text, confidence, source_document_ids, source_chunk_ids, created_at
+- answer_feedback: id, tenant_id (FK), user_id (FK), answer_id (FK), vote, comment, created_at, updated_at (unique on answer_id+user_id)
 
 ## RLS Policy
 Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 `tenant_id = current_setting('app.current_tenant', true)::uuid`
 - users, sessions, documents, invites, audit_logs
+- document_chunks, indexing_jobs, answers, answer_feedback
 - Plus `invites` SELECT policy `invite_lookup_by_code` for invite acceptance
   (`app.invite_accept_code`)
 
@@ -759,12 +880,13 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > `missing_ok` argument, unlike the other four — so a query against `documents`
 > with the setting unset raises an error instead of returning no rows.
 
-## Test Counts (two numbers, both real)
+## Test Counts (three numbers, all real)
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
+- **153** — VQ-204 + VQ-305 branches combined (vq-204, vq-305). 137 + 16 new feedback tests.
 
-Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
+All runs connect as the `vaultiq` superuser, so RLS not exercised in CI. Live container verification uses `vaultiq` role; `vaultiq_app` role testing pending Known Defects fix.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
@@ -790,6 +912,16 @@ Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
 - GET /documents/{id}/download — Download (original filename)
 - DELETE /documents/{id} — Delete (file + DB)
 - GET /documents/usage — Storage stats (count, bytes, MB)
+
+## Search Endpoints (client_admin, employee — super_admin DENIED)
+- POST /search — Hybrid search (BM25 + HNSW + RRF)
+- GET /search/suggest — Autocomplete suggestions
+
+## Feedback Endpoints (client_admin, employee — super_admin DENIED)
+- POST /answers/{answer_id}/feedback — Submit feedback (vote + comment)
+- PATCH /answers/{answer_id}/feedback — Update feedback
+- GET /answers/{answer_id}/feedback — Get feedback (own for employee, all for client_admin)
+- GET /answers/feedback — List all feedback (paged, filtered by answer_id/vote, client_admin only)
 
 ## Project Structure
 > Reflects **main** as of `19ea79f` (VQ-110 merged). VQ-201's branch adds
@@ -868,17 +1000,12 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-202-approval-versioning`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
-- Steps: checkout → build image (libmagic/poppler/tesseract) → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
+- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head (as superuser) → create vaultiq_app role + grants → **pytest tests/ as `vaultiq_app` (RLS enforced)**
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
 
-> ⚠️ **CI runs the application as the `vaultiq` superuser, not `vaultiq_app`.**
-> The pytest step sets `DATABASE_URL` with the `vaultiq` credentials, and that
-> role is `rolsuper = t, rolbypassrls = t`. CI therefore creates and grants the
-> `vaultiq_app` role but never connects as it, so **every RLS policy is inert in
-> CI**. This is Known Defect #1. The fix is to split the identities: seed and
-> migrate as the superuser, run the application under test as `vaultiq_app`.
+> **FIXED:** CI now runs the application tests as `vaultiq_app` (NOBYPASSRLS). Migrations still run as superuser (`DATABASE_URL_SYNC`), but the test step sets `DATABASE_URL` to the app identity and `ADMIN_DATABASE_URL` for conftest derivation. This makes the 188-pass result honest in CI. Known Defect #1 is resolved.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**

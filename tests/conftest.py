@@ -22,9 +22,37 @@ from app.main import app
 
 settings = get_settings()
 
+# Two distinct database identities are used by the test suite:
+#
+#   ADMIN_DATABASE_URL - the migration/DDL identity (local dev: the `vaultiq`
+#       superuser). Used ONLY to truncate and seed fixtures. It has BYPASSRLS
+#       so it can see every row, which is exactly what we do not want the
+#       application to be able to do.
+#
+#   APP_DATABASE_URL - the identity the application under test actually uses.
+#       Defaults to `vaultiq_app`, which is NOBYPASSRLS, so every request the
+#       suite makes has row-level security genuinely enforced.
+#
+# The default must be the NOBYPASSRLS role. Running the suite against the
+# superuser silently disables every RLS policy and makes the whole tenant
+# isolation suite meaningless.
+#
+# In CI (GitHub Actions), these are the exact URLs used by the workflow.
+# In CI (GitHub Actions), the workflow exports these URLs in the test step.
+# Local development can override by setting ADMIN_DATABASE_URL / APP_DATABASE_URL
+# env vars before running pytest.
+
+ADMIN_DATABASE_URL = os.environ.get(
+    "ADMIN_DATABASE_URL",
+    "postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq",
+)
+APP_DATABASE_URL = os.environ.get(
+    "APP_DATABASE_URL",
+    "postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq",
+)
 
 test_app_engine = create_async_engine(
-    settings.DATABASE_URL,
+    APP_DATABASE_URL,
     echo=False,
     poolclass=NullPool,
 )
@@ -52,26 +80,12 @@ def use_test_app_database():
         app.dependency_overrides[get_db] = previous
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the whole suite.
-
-    The app creates a module-level async engine (app.database). Routing each
-    test through its own event loop means the pool can hand a connection bound
-    to a previously-closed loop to a later test (asyncpg flakes). A shared
-    session loop keeps every pooled connection on a live loop.
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest.fixture(scope="function")
 def db_conn():
     conn = psycopg2.connect(settings.DATABASE_URL_SYNC)
     conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs CASCADE")
+    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE")
     conn.commit()
     yield conn
     conn.close()
@@ -90,13 +104,13 @@ def app_db_conn():
 @pytest.fixture(scope="function")
 async def db_engine():
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     # Truncate at start of each test function
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs CASCADE"))
+        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
     yield engine
     await engine.dispose()
 
@@ -119,22 +133,44 @@ async def app_db_engine():
     engine = create_async_engine(
         app_url,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     yield engine
     await engine.dispose()
 
 
 @pytest.fixture(scope="function")
+def app_db_conn():
+    """Sync connection as the vaultiq_app role, so RLS is genuinely enforced.
+
+    The application connection is `APP_DATABASE_URL`, which locally resolves to
+    the superuser. A test that wants to prove a Postgres policy refuses
+    something has to talk to the database as the app role itself, rather than
+    trusting that an HTTP test exercised the policy.
+
+    It does not truncate. Combine with `db_conn` (superuser) to seed, then read
+    or attempt to write here.
+    """
+    app_url = settings.DATABASE_URL_SYNC.replace(
+        "vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"
+    )
+    conn = psycopg2.connect(app_url)
+    conn.autocommit = False
+    yield conn
+    conn.rollback()
+    conn.close()
+
+
+@pytest.fixture(scope="function")
 async def app_db_session(app_db_engine):
     """Async session as vaultiq_app role - RLS enforced."""
     admin_engine = create_async_engine(
-        settings.DATABASE_URL,
+        ADMIN_DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     async with admin_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
+        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
     await admin_engine.dispose()
     session_factory = async_sessionmaker(
         app_db_engine,
@@ -194,6 +230,7 @@ async def tenant_a(db_engine):
         """), {"sid1": admin_sid, "uid1": admin_uid, "sid2": emp_sid, "uid2": emp_uid, "tid": tid})
     return {
         "id": tid,
+        "short_code": "TENANT_A",
         "client_admin": {"id": admin_uid, "email": users[0]["email"], "role": users[0]["role"], "session_id": admin_sid},
         "employee": {"id": emp_uid, "email": users[1]["email"], "role": users[1]["role"], "session_id": emp_sid},
     }
@@ -228,6 +265,7 @@ async def tenant_b(db_engine):
         """), {"sid1": admin_sid, "uid1": admin_uid, "sid2": emp_sid, "uid2": emp_uid, "tid": tid})
     return {
         "id": tid,
+        "short_code": "TENANT_B",
         "client_admin": {"id": admin_uid, "email": users[0]["email"], "role": users[0]["role"], "session_id": admin_sid},
         "employee": {"id": emp_uid, "email": users[1]["email"], "role": users[1]["role"], "session_id": emp_sid},
     }
@@ -302,13 +340,27 @@ async def super_admin_token(db_conn, db_engine):
     )
 
 
+# Aliases for test compatibility
+@pytest.fixture
+def app_session(app_db_session):
+    """Alias for app_db_session - some tests use 'app_session' fixture name."""
+    return app_db_session
+
+
+@pytest.fixture
+def token_a(token_a_admin):
+    """Alias for token_a_admin - some tests use 'token_a' fixture name."""
+    return token_a_admin
+
+
 @pytest_asyncio.fixture(scope="function")
 async def doc_a(async_client, token_a_admin):
     """Upload a document for tenant A."""
     file_content = b"Tenant A document content"
     files = {"file": ("test_a.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_a_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
@@ -318,8 +370,9 @@ async def doc_b(async_client, token_b_admin):
     """Upload a document for tenant B."""
     file_content = b"Tenant B document content"
     files = {"file": ("test_b.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_b_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
