@@ -42,6 +42,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install offline document runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng
+
+      - name: Build application image
+        run: docker build --tag vaultiq:test .
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -80,5 +88,6 @@ jobs:
           APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           JWT_SECRET: test-secret
+          OCR_REQUIRED: "true"
         run: |
           python -m pytest tests/ -v --tb=short
