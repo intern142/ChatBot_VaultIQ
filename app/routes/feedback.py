@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_db, set_tenant_context
 from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
 from app.models.feedback import Answer, AnswerFeedback
@@ -65,6 +65,10 @@ async def create_feedback(
     )
     db.add(feedback)
     await db.commit()
+    # SET LOCAL is transaction-scoped, so commit discarded the context and the
+    # refresh would run with none. Under RLS that reads zero rows and
+    # SQLAlchemy raises "Could not refresh instance". Re-establish it first.
+    await set_tenant_context(db, str(tenant_uuid))
     await db.refresh(feedback)
 
     return feedback
@@ -100,6 +104,10 @@ async def update_feedback(
     from datetime import datetime, timezone
     feedback.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    # SET LOCAL is transaction-scoped, so commit discarded the context and the
+    # refresh would run with none. Under RLS that reads zero rows and
+    # SQLAlchemy raises "Could not refresh instance". Re-establish it first.
+    await set_tenant_context(db, str(tenant_uuid))
     await db.refresh(feedback)
 
     return feedback
