@@ -108,10 +108,11 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
-- Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
-- Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
+- Current branch: **`vq-207`** (working: VQ-207 answer engine — pushed `f20e561`)
+- Current task: **VQ-207** — Answer engine is retrieval-only; remove the LLM layer (Gates 1-3 ✅, building on merged VQ-205 search)
+- Other branches: `vq-201` (PR #10), `vq-202` (PR #11), `vq-203` (PR #13), `vq-301` (PR #14), `vq-303` (Gates 1-6 ✅, not merged)
+- Test suite: **188 passed** (test_answers 33 + permissions 21 + isolation 49 + rest 105)
+- Merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -766,9 +767,18 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 
 ---
 
-### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct**
+### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct** — **Gates 1-3 ✅ (Gate 2+3 refreshed 6 Oct)**
 **Depends on:** VQ-205
+**Branch:** `vq-207` (from main `161eb6f`, fast-forward merged `vq-205` at `0d0bc56`)
+**Commits:** `f20e561` (Gate 2 build) — pushed to origin/vq-207
 **Objective:** VaultIQ answers strictly by finding and returning the right passage from the tenant's approved documents. There is no generated text anywhere, and HeXta's optional LLM layer is removed entirely.
+
+> **Key finding:** VaultIQ (this repo, all branches) has **no LLM of any kind
+> and no answer engine**. It is a separate application from HeXta
+> (`G:\Hexta-v1`, old product — reference for behaviour only, never copied).
+> VQ-207 therefore **builds the answer engine fresh**, retrieval-only, on top
+> of VQ-205's hybrid search, while keeping HeXta's extractive behaviour and
+> avoiding its LLM synthesis layer entirely.
 
 **Acceptance Criteria:**
 1. The extractive answer selection, confidence score and answer / partial / no_answer routing from HeXta are kept
@@ -782,7 +792,37 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 - Automated test that no LLM-related module can be imported, plus grep evidence that the fields are gone
 - Evidence from the live container: 5 in-document and 5 out-of-document questions with their routing
 
-**Gates:** All 7 gates pending
+### Gate 1: Approach Note ✅
+- Plan agreed with lead before coding (via discussion — `APPROACH_VQ207.md` not written; plan recorded in this file and commit message)
+
+### Gate 2: Implementation ✅ (commit `f20e561`, pushed)
+- **`app/schemas/answer.py`** — `AnswerRequest` (question 1-500 chars, top_k 1-50 default 10, hybrid_weight 0-1 default 0.5), `AnswerResponse` (**no `synthesized`/`llm_model` fields**), `AnswerSource` (document_id, chunk_index, original_filename, score, excerpt), `SpellcheckInfo`/`SpellCorrection` (confirmation).
+- **`app/services/answers.py`** — the extractive engine:
+  - Routing kept from HeXta: `ANSWER_CONFIDENCE=90`, `PARTIAL_CONFIDENCE=50`, `NO_ANSWER_RELEVANCE_FLOOR=0.35`.
+  - Confidence = normalized top RRF score → `min(score*(K+1)*100, 100)` (`K=60`, matches hybrid_search), recalibrated down (never up) by query↔evidence relevance.
+  - Phrase extraction: verbatim sentence(s), heading/footer/question lines stripped, abbreviation-fragment merge ("Jordan A." → "Jordan A. Rivera"), short-statement fallback ("Yes."), term-dense window truncation ≤300 chars with ellipses, number-sentence preference when the query names a number.
+  - Bug 2 guard: relevance < 0.35 → clean `no_answer` with empty phrase + empty sources even when a phrase is extractable.
+  - Follow-ups: top content terms from the tenant's own retrieved chunks (excludes question terms), ≤3, static templates ("What is {t}?"...).
+  - Spellcheck: tenant corpus-vocabulary-gated (`_tenant_vocabulary` from `document_chunks`, most-frequent-first, cap 20000), corrects only alphabetic tokens ≥4 chars NOT in the corpus with difflib ratio ≥0.80; numbers never touched; a real corpus term is never rewritten (HeXta false-positive class "respa" fixed). Confirmations echoed in `spellcheck.{applied,original,corrected,corrections}`.
+  - Tenant is mandatory: raises `SearchTenantRequiredError` before any DB call (defence in depth, VQ-205).
+- **`app/routes/answers.py`** — `POST /answers`, `require_roles_with_tenant("client_admin","employee")` (Super Admin 403), tenant-guard → 400. Wired in `app/main.py`.
+- **`app/auth/permissions.py`** — ROLE_MATRIX now declares `POST /search`, `GET /search/suggest`, `POST /answers` (this also fixed a VQ-205 carryover that the VQ-106 router-walk test had been flagging).
+- No LLM anywhere: `BANNED_SDK_PREFIXES` (openai/anthropic/langchain/llama_index/litellm/.../torch/transformers) — source scan confirms zero imports; no banned tokens anywhere in `app/`.
+
+### Gate 3: Tests Green ✅
+- `tests/test_answers.py` — **33 tests** covering: no-LLM guards (source import scan, banned-token scan, `AnswerResponse` has no `synthesized`/`llm_model`, SDK packages `find_spec is None`), routing boundaries, recalibration never increases, phrase extraction (verbatim/heading/footer/question stripping, short fallback, truncation, number preference, abbreviation merge, determinism), spellcheck (typo correct, numbers never, real corpus term never rewritten), follow-ups tenant-content-only, service routing (answer/partial/no_answer, bug 2, spellcheck echo, determinism), endpoint wiring (403 no-token, 401 bad token, 403 super admin, 200 tenant user), and a **seeded end-to-end test** (real partition + document + chunk, real hybrid SQL; only the query embedding is patched) proving in-doc → answer, out-of-doc → clean no_answer, and real-vocab spellcheck confirmation.
+- `tests/isolation_manifest.py` — added `("POST", "/answers")`.
+- `tests/test_isolation_suite.py` — added `"/answers"` to `tenant_scoped_prefixes` + `TestAnswerEndpoints` (cross-tenant body-leak, super-admin 403).
+- Per-file runs, all green:
+  - `tests/test_answers.py` → **33 passed**
+  - `tests/test_permissions.py` → **21 passed** (router-walk: ROLE_MATRIX now complete)
+  - `tests/test_isolation_suite.py` → **49 passed**
+  - `tests/test_auth.py test_documents.py test_rls.py test_search.py test_tenant.py test_tenant_context.py test_tenant_lifecycle.py` → **105 passed**
+  - Combined re-run of touched files (`test_answers + test_permissions + test_isolation_suite`) → **103 passed in 2:34**
+  - **Total: 188 passed**
+- Note: a single `tests/ -q` run exceeded the 15-min shell tool cap (was cut at 38%); every file was re-run and passed individually. FastEmbed needs ~6.5s/model load per fresh process — no download, offline OK.
+
+**Pending:** Gate 4 (self-review vs ACs + `VQ207_SELF_REVIEW.md` + open PR), Gate 5 (lead review), Gate 6 (live container: 5 in-doc + 5 out-of-doc questions, benchmark no-regression), Gate 7 (Friday demo)
 
 ---
 
@@ -897,12 +937,14 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > `missing_ok` argument, unlike the other four — so a query against `documents`
 > with the setting unset raises an error instead of returning no rows.
 
-## Test Counts (two numbers, both real)
+## Test Counts
+- **188** — current, on `vq-207` (`f20e561`): test_answers 33 + permissions 21 + isolation 49 + rest 105.
+  Per-file runs (a single `tests/ -q` exceeds the 15-min shell cap at ~38%).
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
 
-Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
+All runs connect as the `vaultiq` superuser, so they do not exercise RLS.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
