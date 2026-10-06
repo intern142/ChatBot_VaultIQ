@@ -397,6 +397,7 @@ class TestAppRoleCannotBypass:
             "documents",
             "invites",
             "audit_logs",
+            "reset_codes",
         }
 
 

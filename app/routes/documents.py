@@ -13,6 +13,7 @@ from app.auth.permissions import require_roles_with_tenant
 from app.models.document import Document, DocumentJob, ProcessingStatus, JobStatus
 from app.models.user import User
 from app.models.tenant import Tenant
+from app.models.search import IndexingJob
 from app.schemas.document import (
     ApprovalDecisionRequest,
     DocumentResponse,

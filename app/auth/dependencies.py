@@ -55,6 +55,21 @@ async def get_current_user(
             detail="Invalid token",
         )
 
+    # VQ-301 AC3: a deactivated user's existing tokens stop working here.
+    #
+    # Deliberately a separate check from the session lookup rather than relying on
+    # session revocation alone. Deactivation does revoke sessions in the same
+    # transaction, so in normal operation this is belt and braces - but the two
+    # checks fail for different reasons and this one does not depend on the
+    # revocation write having succeeded, committed, or not been rolled back by a
+    # failure after it. The status and body match the revoked-session case so the
+    # two are indistinguishable from outside.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked" if session else "Invalid token",
+        )
+
     return user
 
 
@@ -99,6 +114,13 @@ async def get_current_user_with_tenant(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
+        )
+
+    # VQ-301 AC3, same reasoning and same response as in get_current_user above.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked" if session else "Invalid token",
         )
 
     if role == "super_admin":

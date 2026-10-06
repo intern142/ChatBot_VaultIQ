@@ -12,6 +12,12 @@ class Invite(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String(255), nullable=False)
     code = Column(String(64), unique=True, nullable=False, index=True)
+    # VQ-301 AC1. VQ-107 invites could only ever create a client_admin, and
+    # /invite/accept hardcoded that role. This carries the intended role instead.
+    # TEXT rather than the user_role enum for the same reason audit_logs.actor_role
+    # is text: adding a value to a live Postgres enum needs ALTER TYPE outside a
+    # transaction. Constrained to two values by the endpoint, not by the schema.
+    role = Column(String(50), nullable=False, default="client_admin")
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)

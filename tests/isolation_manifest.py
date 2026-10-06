@@ -21,14 +21,6 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/documents/{document_id}/preview"),
     ("GET", "/documents/{document_id}/download"),
     ("DELETE", "/documents/{document_id}"),
-    ("GET", "/documents/{document_id}/status"),
-    ("POST", "/documents/{document_id}/reprocess"),
-
-    # VQ-202: approval workflow and document versions
-    ("POST", "/documents/{document_id}/approve"),
-    ("POST", "/documents/{document_id}/reject"),
-    ("GET", "/documents/{document_id}/versions"),
-    ("GET", "/documents/searchable/approved"),
 
     # Admin — super_admin only
     ("POST", "/admin/tenants"),
@@ -37,9 +29,24 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+    ("GET", "/admin/tenants/{tenant_id}/settings"),
+    ("PATCH", "/admin/tenants/{tenant_id}/settings"),
+    ("POST", "/admin/tenants/{tenant_id}/settings/logo"),
 }
 
 
 def normalize_path(path: str) -> str:
     """Normalize path params to manifest format."""
     return path
+    (GET, /dashboard/overview),
+    (GET, /dashboard/overview/30d),
+    (GET, /dashboard/documents),
+    (GET, /dashboard/users),
+    (GET, /dashboard/audit),
+    (GET, /dashboard/feedback),
+    (GET, /dashboard/knowledge-gaps),
+    (GET, /dashboard/export/documents),
+    (GET, /dashboard/export/users),
+    (GET, /dashboard/export/audit),
+    (GET, /dashboard/export/feedback),
+]

@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +20,7 @@ from app.schemas.tenant import TenantStatus
 from app.models.session import Session
 from app.models.invite import Invite
 from app.models.audit_log import AuditLog
+from app.services.audit import write_audit_log as shared_write_audit_log
 from app.schemas.tenant import (
     TenantCreate,
     TenantResponse,
@@ -49,8 +50,15 @@ async def write_audit_log(
     target_id: UUID,
     details: dict[str, Any],
 ) -> AuditLog:
-    """Write an audit log entry. Caller must set tenant context."""
-    audit = AuditLog(
+    """Write an audit log entry. Caller must set tenant context.
+
+    VQ-301 moved the body to app/services/audit.py so that admin.py and users.py
+    share one implementation rather than two that can drift apart. This wrapper
+    exists so VQ-107's four call sites and its tests are untouched; it narrows
+    `target_id` to the non-optional type the /admin operations always pass.
+    """
+    return await shared_write_audit_log(
+        db=db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
         actor_role=actor_role,
@@ -59,9 +67,6 @@ async def write_audit_log(
         target_id=target_id,
         details=details,
     )
-    db.add(audit)
-    await db.flush()
-    return audit
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
@@ -86,6 +91,16 @@ async def create_tenant(
             status_code=status.HTTP_409_CONFLICT,
             detail="Tenant short code already exists",
         )
+
+    # Create search index partition for this tenant
+    partition_name = f"document_chunks_tenant_{str(tenant.id).replace('-', '_')}"
+    await db.execute(
+        text(f"""
+            CREATE TABLE IF NOT EXISTS {partition_name} 
+            PARTITION OF document_chunks 
+            FOR VALUES IN ('{tenant.id}')
+        """)
+    )
 
     # Set tenant context so the audit entry passes RLS even under vaultiq_app
     await set_tenant_context(db, str(tenant.id))
@@ -222,11 +237,14 @@ async def create_invite(
     # read zero rows, find none, and allow a second invite to be issued - a
     # silent check-then-act failure that only appears under the real app role.
     await set_tenant_context(db, str(tenant_id))
+    print(f"DEBUG create_invite: tenant_id={tenant_id}, context set")
 
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
+    print(f"DEBUG create_invite: tenant query result={tenant}")
 
     if not tenant:
+        print(f"DEBUG create_invite: TENANT NOT FOUND for id={tenant_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     if tenant.status != TenantStatus.active:

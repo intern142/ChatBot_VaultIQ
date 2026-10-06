@@ -26,24 +26,13 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("POST", "/auth/refresh"): {"super_admin", "client_admin", "employee"},
     ("POST", "/auth/logout"): {"super_admin", "client_admin", "employee"},
 
-    # Documents — tenant users only (super admin DENIED, employee DENIED on upload)
-    ("POST", "/documents"): {"client_admin"},
+    # Documents — tenant users only (super admin DENIED)
+    ("POST", "/documents"): {"client_admin", "employee"},
     ("GET", "/documents"): {"client_admin", "employee"},
     ("GET", "/documents/usage"): {"client_admin"},
     ("GET", "/documents/{document_id}/preview"): {"client_admin", "employee"},
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
-    ("GET", "/documents/{document_id}/status"): {"client_admin", "employee"},
-    ("POST", "/documents/{document_id}/reprocess"): {"client_admin"},
-
-    # VQ-202: approval workflow. An employee may upload a pending version but must
-    # not be able to make content searchable, so approve/reject and the version
-    # history are client_admin only. Reading the approved set is open to both,
-    # because that is the corpus an employee's question is answered from.
-    ("POST", "/documents/{document_id}/approve"): {"client_admin"},
-    ("POST", "/documents/{document_id}/reject"): {"client_admin"},
-    ("GET", "/documents/{document_id}/versions"): {"client_admin"},
-    ("GET", "/documents/searchable/approved"): {"client_admin", "employee"},
 
     # Admin — super_admin only
     ("POST", "/admin/tenants"): {"super_admin"},
@@ -52,6 +41,17 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
     ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
     ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
+    ("GET", "/admin/tenants/{tenant_id}/settings"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/settings"): {"super_admin"},
+    ("POST", "/admin/tenants/{tenant_id}/settings/logo"): {"super_admin"},
+
+    # Tenant settings — client_admin only
+    ("GET", "/tenant/settings"): {"client_admin"},
+    ("PATCH", "/tenant/settings"): {"client_admin"},
+    ("POST", "/tenant/settings/logo"): {"client_admin"},
+
+    # Public tenant lookup — no auth
+    ("GET", "/tenants/{short_code}/public"): {"super_admin", "client_admin", "employee"},
 }
 
 

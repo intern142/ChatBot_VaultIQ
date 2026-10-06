@@ -96,3 +96,20 @@ async def apply_token_context(session: AsyncSession, payload: dict) -> None:
         await set_tenant_context(session, str(tenant_id))
     elif payload.get("role") == "super_admin":
         await set_platform_context(session)
+
+
+async def set_reset_code_context(session: AsyncSession, code_hash: str) -> None:
+    """Set context for password reset code lookup.
+
+    The reset endpoint is unauthenticated, so there's no tenant context.
+    The code_hash is a bearer credential - whoever holds it can read the row.
+    We set a temporary context that allows reading the specific reset_code row.
+    """
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :tenant_id, true)"),
+        {"tenant_id": ""},
+    )
+    await session.execute(
+        text("SELECT set_config('app.reset_code_hash', :code_hash, true)"),
+        {"code_hash": code_hash},
+    )
