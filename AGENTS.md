@@ -678,7 +678,8 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
-Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
+Sprint 3: VQ-201 → VQ-205 → VQ-207 → VQ-208
+Sprint 4: VQ-303 → VQ-402 → VQ-403
 ```
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
@@ -721,6 +722,121 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 5. ✅ Employees blocked (403)
 
 **Pending:** Gate 5 (code review), Gate 6 (re-run under `vaultiq_app`), Gate 7 (demo)
+
+---
+
+### VQ-205 — Search is always tenant-bounded (defence in depth) [BE][W3][P0][5pt] — **5 Oct – 6 Oct**
+**Depends on:** VQ-204
+**Objective:** Independently of the database-level protection, the search itself can never run without being restricted to one tenant.
+
+**Acceptance Criteria:**
+1. Every search — keyword, vector, combined, reranked — is restricted to the requesting tenant before any ranking happens
+2. If for any reason no tenant is known, the search refuses to run rather than running unrestricted
+3. Ranking is deterministic for the same tenant, role and question (HeXta bug 8 must not come back)
+4. Search quality and latency are unchanged
+
+**Must Be Proven:**
+- Benchmark before and after, posted as a comment
+- Automated tests: a no-tenant search refuses with zero database calls; the same question from A and B returns only own content
+- Evidence from the live container: 10 identical questions as A and as B with the returned chunk identities
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct**
+**Depends on:** VQ-205
+**Objective:** VaultIQ answers strictly by finding and returning the right passage from the tenant's approved documents. There is no generated text anywhere, and HeXta's optional LLM layer is removed entirely.
+
+**Acceptance Criteria:**
+1. The extractive answer selection, confidence score and answer / partial / no_answer routing from HeXta are kept
+2. Everything related to LLM synthesis — client, feature flag, grounding validator, complexity router, circuit breaker, cost analytics, the synthesized and llm_model fields — is removed from the codebase and the responses
+3. A question whose answer is not in the tenant's documents gets the clean 'not found' response and never a random excerpt (HeXta bug 2 must not come back)
+4. Follow-up suggestions come only from the tenant's own content
+5. The spellcheck confirmation still works and the known false positives from the HeXta report are fixed
+
+**Must Be Proven:**
+- Benchmark before and after with no regression
+- Automated test that no LLM-related module can be imported, plus grep evidence that the fields are gone
+- Evidence from the live container: 5 in-document and 5 out-of-document questions with their routing
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-208 — Cross-tenant isolation test suite v2 (search level) [BE][W3][P0][5pt] — **6 Oct – 7 Oct**
+**Depends on:** VQ-203, VQ-205, VQ-210
+**Objective:** Prove that search itself cannot leak between tenants, not just the operations around it.
+
+**Acceptance Criteria:**
+1. The same document content is placed in two tenants; hundreds of varied questions from tenant A must only ever return tenant A's copy
+2. Cached answers are covered: A asks, then B asks the same, and B must not receive A's cached answer
+3. Content still being processed for B never appears to A
+4. Runs nightly and on any change touching search, processing or caching
+
+**Must Be Proven:**
+- The suite's run output against the live container
+- A demonstration: weaken the tenant restriction on a throwaway branch and show the suite catching it
+
+**Gates:** All 7 gates pending
+
+---
+
+## Sprint 4 / Week 4 Plan (5 Oct – 9 Oct)
+
+### VQ-303 — Super Admin console data (metadata only) [BE][W4][P0][5pt] — **7 Oct – 8 Oct**
+**Depends on:** VQ-107, VQ-302
+**Objective:** Platform operators can see the health and usage of every tenant without ever seeing a single sentence of client content.
+
+**Acceptance Criteria:**
+1. Per tenant: status, user count, document count, storage used vs quota, questions per day, processing health, last activity, and the same over time
+2. Platform health: database, processing backlog, disk, the no-internet self-check, error rate
+3. All of it served through the limited platform database identity from VQ-102, which has no access to document text, chunks or chat messages
+4. No Super Admin operation can return content fields
+
+**Must Be Proven:**
+- An automated test that scans every Super Admin response for content-like fields and fails if any appear
+- A test that the platform database identity cannot select content columns
+- Evidence from the live container of a Super Admin trying and failing to reach tenant content
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-402 — Audit trail, compliance export, retention [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-301
+**Objective:** Everything that happens in a tenant is traceable, exportable, and kept only as long as that tenant's policy says.
+
+**Acceptance Criteria:**
+1. Recorded: login, logout, failed login, invite, role change, upload, approve, reject, delete, every question with which documents were used and the confidence, exports, settings changes, tenant status changes
+2. Audit records cannot be edited or deleted by the application; only the retention process removes them
+3. Client Admin can export their tenant's audit trail for a date range; the export itself is recorded
+4. Conversations and audit records older than the tenant's retention period are removed nightly, per tenant, never across tenants
+
+**Must Be Proven:**
+- Automated tests: the application identity cannot modify audit rows; retention only touches one tenant
+- Evidence from the live container: 10 actions performed, export contains all 10
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-403 — Tenant offboarding and full purge [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-107, VQ-402
+**Objective:** When a client leaves, nothing of theirs remains anywhere — and we can hand them a report proving it.
+
+**Acceptance Criteria:**
+1. Super Admin can offboard a tenant after re-confirming their own identity; the tenant is locked immediately and all its sessions end
+2. A 7-day grace period during which the offboarding can be cancelled
+3. After the grace period, everything belonging to the tenant is removed: every record, every derived search artefact, every file, every cached answer, every pending job, and its index space
+4. Backups containing the tenant are flagged so they expire per policy
+5. A deletion report — what was removed, how much, when, by whom — is produced and stored outside the tenant
+
+**Must Be Proven:**
+- Automated test: after purge, zero records and zero files reference the tenant, and other tenants are untouched
+- Evidence from staging: a purged test tenant, database and disk searched for its identity, and the deletion report
+
+**Gates:** All 7 gates pending
 
 ---
 
