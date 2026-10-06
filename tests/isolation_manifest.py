@@ -22,6 +22,10 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/documents/{document_id}/download"),
     ("DELETE", "/documents/{document_id}"),
 
+    # Search — tenant users only
+    ("POST", "/search"),
+    ("GET", "/search/suggest"),
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"),
     ("GET", "/admin/tenants"),
@@ -29,6 +33,12 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+
+    # Admin Platform — super_admin only (platform-wide, metadata only)
+    ("GET", "/admin/platform/overview"),
+    ("GET", "/admin/platform/overview/{tenant_id}"),
+    ("GET", "/admin/platform/health"),
+    ("GET", "/admin/platform/stats"),
 }
 
 
