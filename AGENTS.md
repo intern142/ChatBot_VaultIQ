@@ -734,6 +734,58 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - Password strength: min 8 chars, upper, lower, digit, special
 - Lockout: 5 failed attempts → 15 min lockout
 
+---
+
+## Sprint 4 / Week 4 Plan (5 Oct – 9 Oct)
+
+### VQ-303 — Super Admin console data (metadata only) [BE][W4][P0][5pt] — **Gates 1-6 ✅**
+**Depends on:** VQ-107, VQ-302
+**Objective:** Platform operators can see the health and usage of every tenant without ever seeing a single sentence of client content.
+
+**Completed:**
+- Gate 1: Approach note — `APPROACH_VQ303.md` (endpoint design, DB grants, metadata-only schema, content leakage prevention)
+- Gate 2: Implementation — `app/schemas/admin.py`, `app/services/platform_stats.py`, `app/routes/admin_dashboard.py`, `alembic/versions/011_super_admin_grants.py`, `app/auth/permissions.py` ROLE_MATRIX updates
+- Gate 3: Tests written and green — 10 tests (`tests/test_admin_dashboard.py`): overview, detail, health, stats, content leakage scan, DB grants verification, isolation manifest check
+- Gate 4: Self-review complete — all 4 acceptance criteria walked and confirmed
+- **Gate 6: Live container verified** — All 10 admin dashboard tests + 36 isolation suite tests pass on live container (uvicorn + Docker PG, `vaultiq_super_admin` role)
+
+**Gate 6 Evidence — Live Container:**
+- Server: `uvicorn app.main:app` on `http://localhost:8000` (as `vaultiq_super_admin` role, NOBYPASSRLS)
+- Database: Docker `pgvector/pgvector:pg16` on port 5433, migrations up to `011_super_admin_grants`
+- Endpoints tested: 
+  - `GET /admin/platform/overview` — returns all tenants with metadata (user_count, document_count, storage_used_mb, questions_24h/30d, last_activity, processing queue)
+  - `GET /admin/platform/overview/{tenant_id}` — returns detail with 30-day time series (questions/day, storage/day, top errors)
+  - `GET /admin/platform/health` — returns DB (size, connections), disk, processing queue, no-internet check (True), error_rate_24h
+  - `GET /admin/platform/stats` — returns platform aggregates (total_tenants, active_tenants, total_users, total_documents, total_storage_mb, total_questions_24h/30d)
+- **Content leakage scan:** All 4 Super Admin endpoints scanned for forbidden fields (`content`, `extracted_text`, `embedding`, `message`, `answer`, `question`, `password_hash`, `token`, `secret`, `key`) — **0 found**
+- **Cross-tenant isolation:** 36 isolation suite tests pass (including new admin platform routes in manifest)
+- **Permission enforcement:** Non-super-admin tokens denied (403) on all `/admin/platform/*` endpoints
+- **Full suite:** 147 tests pass (including 10 new admin dashboard tests)
+
+**Acceptance Criteria Status:**
+1. ✅ Per tenant: status, user count, document count, storage used vs quota, questions per day, processing health, last activity, and the same over time
+2. ✅ Platform health: database, processing backlog, disk, the no-internet self-check, error rate
+3. ✅ All served through `vaultiq_super_admin` DB identity (no access to document text, chunks, chat messages)
+4. ✅ No Super Admin operation returns content fields — automated test scans all responses
+
+**Pending:** Gate 5 (code review), Gate 7 (demo)
+
+---
+
+### VQ-402 — Audit trail, compliance export, retention [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-301
+**Objective:** Everything that happens in a tenant is traceable, exportable, and kept only as long as that tenant's policy says.
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-403 — Tenant offboarding and full purge [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-107, VQ-402
+**Objective:** When a client leaves, nothing of theirs remains anywhere — and we can hand them a report proving it.
+
+**Gates:** All 7 gates pending
+
 ## Database Tables
 - tenants: id, short_code, name, status, storage_quota_mb, timestamps
 - users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
