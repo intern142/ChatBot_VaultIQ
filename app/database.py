@@ -32,6 +32,13 @@ async def get_db() -> AsyncSession:
 
 
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
+    """Set tenant context for RLS, transaction-scoped so it auto-resets on commit.
+
+    asyncpg cannot bind parameters in SET, so the literal-interpolation form
+    f"SET LOCAL app.current_tenant = '{id}'" was the previous approach. That put a
+    caller-influenced value into SQL text. set_config takes the value as a bound
+    parameter, so the tenant id never becomes part of the statement.
+    """
     await session.execute(
         text("SELECT set_config('app.current_tenant', :tenant_id, true)"),
         {"tenant_id": tenant_id},
@@ -47,13 +54,13 @@ async def set_platform_context(session: AsyncSession) -> None:
     """Set platform context so Super Admin rows are reachable under RLS.
 
     Known Defect #2. Platform accounts have tenant_id IS NULL (VQ-101 AC3), and
-    the platform_account_access policies in migration 009 require
+    the platform_account_access policies in migration 008 require
     app.platform_access = 'on' before such a row is visible. Only call this on a
     path that has already established the caller is a Super Admin - it is the
     one context that deliberately reaches outside any tenant.
 
-    The tenant context is cleared first on purpose. The policy also requires
-    that no tenant be in context, so that setting both can never widen
+    The tenant context is cleared first on purpose. Migration 008's policy also
+    requires that no tenant be in context, so that setting both can never widen
     visibility rather than just failing. Clearing first means the policy's
     conditions are satisfied by construction on a platform path.
     """

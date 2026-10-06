@@ -22,6 +22,12 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/documents/{document_id}/download"),
     ("DELETE", "/documents/{document_id}"),
 
+    # VQ-202: approval workflow and document versions
+    ("POST", "/documents/{document_id}/approve"),
+    ("POST", "/documents/{document_id}/reject"),
+    ("GET", "/documents/{document_id}/versions"),
+    ("GET", "/documents/searchable/approved"),
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"),
     ("GET", "/admin/tenants"),

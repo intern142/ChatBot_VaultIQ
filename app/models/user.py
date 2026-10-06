@@ -41,8 +41,13 @@ class User(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    # documents.uploaded_by and documents.approved_by both reference users.id
+    # (VQ-202), so the path has to be named explicitly.
     documents: Mapped[List['Document']] = relationship(
-        'Document', back_populates='uploader', lazy='dynamic'
+        'Document',
+        back_populates='uploader',
+        foreign_keys='Document.uploaded_by',
+        lazy='dynamic',
     )
     sessions: Mapped[List['Session']] = relationship(
         'Session', back_populates='user', lazy='dynamic'
