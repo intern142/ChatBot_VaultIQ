@@ -46,8 +46,10 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
 
 
 async def clear_tenant_context(session: AsyncSession) -> None:
-    """Clear tenant context (not strictly needed with SET LOCAL, but explicit)."""
-    await session.execute(text("SET LOCAL app.current_tenant = ''"))
+    """Clear tenant context (not strictly needed with set_config, but explicit)."""
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', '', true)"),
+    )
 
 
 async def set_platform_context(session: AsyncSession) -> None:

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, set_tenant_context
 from app.auth.dependencies import get_current_user_with_tenant
 from app.auth.permissions import require_roles_with_tenant
-from app.models.document import Document
+from app.models.document import Document, DocumentJob, ProcessingStatus, JobStatus
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.schemas.document import (
@@ -20,6 +20,7 @@ from app.schemas.document import (
     SearchableDocumentsResponse,
     StorageUsageResponse,
     VersionHistoryResponse,
+    ProcessingStatusResponse,
 )
 from app.services.approval import (
     ApprovalError,
@@ -256,6 +257,15 @@ async def upload_document(
             status="pending",
         )
         db.add(document)
+
+        # Enqueue processing job (idempotent by document_id + payload)
+        job = DocumentJob(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            payload={"action": "index", "version": version_number},
+        )
+        db.add(job)
+
         await db.flush()
         await db.refresh(document)
         await db.commit()
@@ -608,4 +618,109 @@ async def list_searchable_documents(
         tenant_id=tenant_uuid,
         knowledge_base_version=tenant.knowledge_base_version if tenant else 1,
         documents=documents,
+    )
+
+
+# --- VQ-203: document processing queue -------------------------------------
+
+@router.get("/{document_id}/status", response_model=ProcessingStatusResponse)
+async def get_document_status(
+    document_id: uuid.UUID,
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant_id = current_user_tenant
+
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.tenant_id == uuid.UUID(tenant_id)
+        )
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Get the latest job for this document
+    job_result = await db.execute(
+        select(DocumentJob)
+        .where(DocumentJob.document_id == document_id)
+        .order_by(DocumentJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+
+    return ProcessingStatusResponse(
+        document_id=document.id,
+        processing_status=document.processing_status,
+        processing_error=document.processing_error,
+        processing_started_at=document.processing_started_at,
+        processing_completed_at=document.processing_completed_at,
+        processing_version=document.processing_version,
+        job=job,
+    )
+
+
+@router.post("/{document_id}/reprocess", response_model=ProcessingStatusResponse)
+async def reprocess_document(
+    document_id: uuid.UUID,
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant_id = current_user_tenant
+
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.tenant_id == uuid.UUID(tenant_id)
+        )
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Increment processing version and enqueue new job
+    document.processing_version += 1
+    document.processing_status = ProcessingStatus.queued
+    document.processing_error = None
+    document.processing_started_at = None
+    document.processing_completed_at = None
+
+    job = DocumentJob(
+        tenant_id=uuid.UUID(tenant_id),
+        document_id=document_id,
+        payload={"action": "index", "version": document.processing_version},
+    )
+    db.add(job)
+
+    await db.commit()
+    # Context is transaction-scoped; see upload_document for why this is needed.
+    await set_tenant_context(db, tenant_id)
+    await db.refresh(document)
+
+    # Return updated status
+    job_result = await db.execute(
+        select(DocumentJob)
+        .where(DocumentJob.document_id == document_id)
+        .order_by(DocumentJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+
+    return ProcessingStatusResponse(
+        document_id=document.id,
+        processing_status=document.processing_status,
+        processing_error=document.processing_error,
+        processing_started_at=document.processing_started_at,
+        processing_completed_at=document.processing_completed_at,
+        processing_version=document.processing_version,
+        job=job,
     )

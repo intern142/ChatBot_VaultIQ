@@ -21,6 +21,8 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/documents/{document_id}/preview"),
     ("GET", "/documents/{document_id}/download"),
     ("DELETE", "/documents/{document_id}"),
+    ("GET", "/documents/{document_id}/status"),
+    ("POST", "/documents/{document_id}/reprocess"),
 
     # VQ-202: approval workflow and document versions
     ("POST", "/documents/{document_id}/approve"),
