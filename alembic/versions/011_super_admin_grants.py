@@ -41,7 +41,7 @@ def upgrade() -> None:
     op.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO vaultiq_super_admin")
 
 
-def downgrade() -> none:
+def downgrade() -> None:
     op.execute("REVOKE ALL ON users FROM vaultiq_super_admin")
     op.execute("REVOKE ALL ON documents FROM vaultiq_super_admin")
     op.execute("REVOKE ALL ON audit_logs FROM vaultiq_super_admin")
