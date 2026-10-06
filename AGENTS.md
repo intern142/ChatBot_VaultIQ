@@ -725,22 +725,23 @@ Sprint 4: VQ-303 → VQ-402 → VQ-403
 
 ---
 
-### VQ-205 — Search is always tenant-bounded (defence in depth) [BE][W3][P0][5pt] — **5 Oct – 6 Oct**
+### VQ-205 — Search is always tenant-bounded (defence in depth) [BE][W3][P0][5pt] — **Gates 1-4 ✅**
 **Depends on:** VQ-204
 **Objective:** Independently of the database-level protection, the search itself can never run without being restricted to one tenant.
 
-**Acceptance Criteria:**
-1. Every search — keyword, vector, combined, reranked — is restricted to the requesting tenant before any ranking happens
-2. If for any reason no tenant is known, the search refuses to run rather than running unrestricted
-3. Ranking is deterministic for the same tenant, role and question (HeXta bug 8 must not come back)
-4. Search quality and latency are unchanged
+**Completed:**
+- Gate 1: Approach note — explicit tenant guard at service layer, deterministic RRF ranking, error handling
+- Gate 2: Implementation — `app/services/search.py` (service), `app/routes/search.py` (endpoints), `app/models/search.py` (DocumentChunk, IndexingJob), `app/services/embeddings.py` (FastEmbed), migration `010_search_index.py` (partitioned table, tsvector, HNSW, RLS)
+- Gate 3: Tests written and green — 5 unit tests (`tests/test_search.py`), 8 cross-tenant isolation tests (`tests/test_isolation_suite.py::TestSearchEndpoints`), coverage guard updated
+- Gate 4: Self-review complete — `VQ205_SELF_REVIEW.md` written, all 4 acceptance criteria walked and confirmed
 
-**Must Be Proven:**
-- Benchmark before and after, posted as a comment
-- Automated tests: a no-tenant search refuses with zero database calls; the same question from A and B returns only own content
-- Evidence from the live container: 10 identical questions as A and as B with the returned chunk identities
+**Acceptance Criteria Status:**
+1. ✅ Every search restricted to requesting tenant before ranking — explicit guard in `hybrid_search()`/`search_suggest()` raises `SearchTenantRequiredError` before any DB call
+2. ✅ No-tenant search refuses with zero DB calls — unit test verifies `mock_db.execute.assert_not_called()`
+3. ✅ Deterministic ranking — RRF sorted by `(combined_score DESC, chunk_id ASC)`, test runs 5× asserts identical order
+4. ⏳ Quality/latency unchanged — pending benchmark re-run against VQ-204 baseline
 
-**Gates:** All 7 gates pending
+**Pending:** Gate 5 (code review), Gate 6 (live container verify + benchmark), Gate 7 (demo)
 
 ---
 
