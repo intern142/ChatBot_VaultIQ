@@ -26,6 +26,9 @@ ISOLATION_COVERED_ROUTES = {
     ("POST", "/search"),
     ("GET", "/search/suggest"),
 
+    # Answers — tenant users only (extractive answer engine)
+    ("POST", "/answers"),
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"),
     ("GET", "/admin/tenants"),

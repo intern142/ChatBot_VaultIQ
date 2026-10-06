@@ -15,7 +15,7 @@ from tests.isolation_manifest import ISOLATION_COVERED_ROUTES, normalize_path
 
 def test_route_coverage_guard():
     """Every tenant-scoped route in the app must be listed in ISOLATION_COVERED_ROUTES."""
-    tenant_scoped_prefixes = ("/documents", "/admin", "/auth/refresh", "/auth/logout", "/invite/accept", "/search")
+    tenant_scoped_prefixes = ("/documents", "/admin", "/auth/refresh", "/auth/logout", "/invite/accept", "/search", "/answers")
     tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
@@ -430,6 +430,47 @@ class TestSearchEndpoints:
         resp = await make_request(async_client, "GET", "/search/suggest?q=test", token)
         assert resp.status_code in (200, 404)
         assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+
+class TestAnswerEndpoints:
+    """Answer endpoint (/answers) - tenant users only, no cross-tenant content."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_answer_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Answers from tenant A token must never surface tenant B content."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(
+            async_client, "POST", "/answers", token,
+            json={"question": "what is the test policy", "top_k": 10},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # never a random excerpt for an unanswered question, and never
+        # any cross-tenant content
+        assert data.get("routing") in ("answer", "partial", "no_answer")
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+    @pytest.mark.asyncio
+    async def test_answer_super_admin_denied(
+        self, async_client, super_admin_token
+    ):
+        """Super Admin must be denied (403) on /answers like all content routes."""
+        resp = await make_request(
+            async_client, "POST", "/answers", super_admin_token,
+            json={"question": "what is the test policy"},
+        )
+        assert resp.status_code == 403
 
 
 # ---- Manifest completeness verification ----

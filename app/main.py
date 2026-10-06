@@ -4,6 +4,7 @@ from app.routes.documents import router as documents_router
 from app.routes.admin import router as admin_router
 from app.routes.invite import router as invite_router
 from app.routes.search import router as search_router
+from app.routes.answers import router as answers_router
 
 app = FastAPI(
     title="VaultIQ API",
@@ -16,6 +17,7 @@ app.include_router(documents_router)
 app.include_router(admin_router)
 app.include_router(invite_router)
 app.include_router(search_router)
+app.include_router(answers_router)
 
 
 @app.get("/health")
