@@ -161,7 +161,7 @@ async def upload_document(
     # the version group before anything is written, so a bad `replaces` id costs
     # no disk write.
     detected_mime = validate_mime_type(file)
-    tenant_uuid = uuid.UUID(tenant_id)
+    tenant_uuid = tenant_id
 
     group_id, version_number, supersedes_id = await _resolve_version_target(
         db, tenant_uuid, replaces
@@ -216,6 +216,17 @@ async def upload_document(
         # SQLAlchemy raises "Could not refresh instance". Re-establish it first.
         await set_tenant_context(db, str(tenant_uuid))
         await db.refresh(document)
+
+        # Enqueue indexing job (will be processed when extraction is available)
+        # Must be in the same transaction as the document so RLS context applies.
+        indexing_job = IndexingJob(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            status='pending',
+            attempts=0,
+        )
+        db.add(indexing_job)
+
         await db.commit()
     except HTTPException:
         await db.rollback()
@@ -251,16 +262,6 @@ async def upload_document(
         if file_saved:
             delete_document_file(tenant_uuid, document_id, stored_filename)
         raise
-
-    # Enqueue indexing job (will be processed when extraction is available)
-    indexing_job = IndexingJob(
-        tenant_id=uuid.UUID(tenant_id),
-        document_id=document_id,
-        status='pending',
-        attempts=0,
-    )
-    db.add(indexing_job)
-    await db.commit()
 
     return document
 

@@ -130,7 +130,7 @@ class TestInviteOneUser:
         assert resp.status_code == 200, resp.text
 
     async def test_super_admin_invite_for_admin_still_refused_when_one_exists(
-        self, async_client, tenant_a, super_admin_token
+        self, async_client, tenant_a, super_admin_token, db_engine
     ):
         """VQ-107 AC3 is unchanged for the bootstrap case.
 
@@ -138,6 +138,18 @@ class TestInviteOneUser:
         still be refused. This is the regression check that scoping AC1's new
         role did not quietly delete an existing guarantee.
         """
+        # Debug: check if tenant exists via db_engine fixture
+        from sqlalchemy import text
+        print(f"DEBUG TEST: db_engine_id={id(db_engine)}")
+        async with db_engine.begin() as conn:
+            result = await conn.execute(text("SELECT id, short_code FROM tenants WHERE id = :tid"), {"tid": tenant_a['id']})
+            row = result.fetchone()
+            print(f"DEBUG TEST: tenant_a['id']={tenant_a['id']}, direct query result={row}")
+            # Also check ALL tenants
+            result = await conn.execute(text("SELECT id, short_code FROM tenants"))
+            rows = result.fetchall()
+            print(f"DEBUG TEST: ALL tenants = {rows}")
+        
         resp = await async_client.post(
             f"/admin/tenants/{tenant_a['id']}/invite",
             json={"email": "boot@tenanta.com", "expires_in_hours": 168},

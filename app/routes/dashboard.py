@@ -4,7 +4,7 @@ from sqlalchemy import text, select, func
 from app.database import get_db
 from app.auth.permissions import require_roles_with_tenant
 from app.models.user import User
-from typing import Optional
+from typing import Optional, Any
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 

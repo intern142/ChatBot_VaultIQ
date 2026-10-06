@@ -36,11 +36,13 @@ def _file(name="policy.txt", body=b"Leave requests must be approved by a manager
     return {"file": (name, body, "text/plain")}
 
 
-async def _upload(client, headers, name="policy.txt", replaces=None, body=b"content"):
+async def _upload(client, headers, name="policy.txt", replaces=None, body=b"content", category="policy"):
     files = {"file": (name, body, "text/plain")}
-    # `replaces` is a form field, not a file part. Putting it in `files` makes
-    # httpx send it as a file with a filename, which FastAPI rejects with 422.
-    data = {"replaces": replaces} if replaces else None
+    # `replaces` and `category` are form fields, not file parts. Putting them in `files` makes
+    # httpx send them as files with filenames, which FastAPI rejects with 422.
+    data = {"category": category}
+    if replaces:
+        data["replaces"] = replaces
     r = await client.post("/documents", files=files, data=data, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()
@@ -312,14 +314,14 @@ class TestPermissions:
     """AC2/the control: only a Client Admin may approve."""
 
     @pytest.mark.asyncio
-    async def test_employee_cannot_approve(self, client, employee_a_headers):
-        doc = await _upload(client, employee_a_headers)
+    async def test_employee_cannot_approve(self, client, client_admin_a_headers, employee_a_headers):
+        doc = await _upload(client, client_admin_a_headers)
         r = await _approve(client, employee_a_headers, doc["id"])
         assert r.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_employee_cannot_reject(self, client, employee_a_headers):
-        doc = await _upload(client, employee_a_headers)
+    async def test_employee_cannot_reject(self, client, client_admin_a_headers, employee_a_headers):
+        doc = await _upload(client, client_admin_a_headers)
         r = await client.post(
             f"/documents/{doc['id']}/reject", json={}, headers=employee_a_headers
         )
@@ -327,9 +329,9 @@ class TestPermissions:
 
     @pytest.mark.asyncio
     async def test_employee_cannot_read_version_history(
-        self, client, employee_a_headers
+        self, client, client_admin_a_headers, employee_a_headers
     ):
-        doc = await _upload(client, employee_a_headers)
+        doc = await _upload(client, client_admin_a_headers)
         r = await client.get(
             f"/documents/{doc['id']}/versions", headers=employee_a_headers
         )
@@ -377,21 +379,23 @@ class TestTenantIsolation:
         self, client, client_admin_a_headers
     ):
         """A junk id must not be a distinguishable probe for valid ids."""
-        data = dict(_file("policy.txt"))
-        junk = await client.post(
+        # Use text content that will be detected as text/plain (not application/octet-stream)
+        text_content = b"test content for mime detection"
+        # files dict can only be consumed once by httpx, so create fresh ones
+        junk_r = await client.post(
             "/documents",
-            files={"file": ("policy.txt", b"x", "text/plain")},
-            data={"replaces": "not-a-uuid"},
+            files={"file": ("policy.txt", text_content, "text/plain")},
+            data={"replaces": "not-a-uuid", "category": "policy"},
             headers=client_admin_a_headers,
         )
-        missing = await client.post(
+        missing_r = await client.post(
             "/documents",
-            files={"file": ("policy.txt", b"x", "text/plain")},
-            data={"replaces": str(uuid.uuid4())},
+            files={"file": ("policy.txt", text_content, "text/plain")},
+            data={"replaces": str(uuid.uuid4()), "category": "policy"},
             headers=client_admin_a_headers,
         )
-        assert junk.status_code == missing.status_code == 404
-        assert junk.json() == missing.json()
+        assert junk_r.status_code == missing_r.status_code == 404
+        assert junk_r.json() == missing_r.json()
 
 
 # --- helpers for the raw-SQL invariant tests -------------------------------

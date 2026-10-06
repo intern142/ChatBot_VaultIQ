@@ -80,13 +80,20 @@ def use_test_app_database():
         app.dependency_overrides[get_db] = previous
 
 
+@pytest.fixture(scope="function", autouse=True)
+def truncate_tables():
+    """Ensure clean database state for each test function."""
+    conn = psycopg2.connect(settings.DATABASE_URL_SYNC)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE")
+    conn.close()
+
+
 @pytest.fixture(scope="function")
 def db_conn():
     conn = psycopg2.connect(settings.DATABASE_URL_SYNC)
     conn.autocommit = False
-    cur = conn.cursor()
-    cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE")
-    conn.commit()
     yield conn
     conn.close()
 
@@ -108,10 +115,8 @@ async def db_engine():
         echo=False,
         poolclass=NullPool,
     )
-    # Truncate at start of each test function
-    async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
     yield engine
+    print(f"DEBUG db_engine fixture: disposing engine_id={id(engine)}")
     await engine.dispose()
 
 
@@ -164,14 +169,6 @@ def app_db_conn():
 @pytest.fixture(scope="function")
 async def app_db_session(app_db_engine):
     """Async session as vaultiq_app role - RLS enforced."""
-    admin_engine = create_async_engine(
-        ADMIN_DATABASE_URL,
-        echo=False,
-        poolclass=NullPool,
-    )
-    async with admin_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE"))
-    await admin_engine.dispose()
     session_factory = async_sessionmaker(
         app_db_engine,
         class_=AsyncSession,
@@ -204,6 +201,7 @@ async def async_client():
 @pytest_asyncio.fixture(scope="function")
 async def tenant_a(db_engine):
     """Create tenant A with client_admin and employee users + sessions."""
+    print(f"DEBUG tenant_a fixture: db_engine_id={id(db_engine)}")
     async with db_engine.begin() as conn:
         result = await conn.execute(text("""
             INSERT INTO tenants (short_code, name, status, storage_quota_mb)
@@ -211,6 +209,7 @@ async def tenant_a(db_engine):
             RETURNING id
         """))
         tid = result.scalar()
+        print(f"DEBUG tenant_a fixture: created tenant id={tid}")
         ph = hash_password("StrongPass1!")
         result = await conn.execute(text("""
             INSERT INTO users (tenant_id, email, password_hash, role)
@@ -228,6 +227,16 @@ async def tenant_a(db_engine):
             VALUES (:sid1, :uid1, :tid, '', now() + interval '24 hours'),
                    (:sid2, :uid2, :tid, '', now() + interval '24 hours')
         """), {"sid1": admin_sid, "uid1": admin_uid, "sid2": emp_sid, "uid2": emp_uid, "tid": tid})
+        print(f"DEBUG tenant_a fixture: committed transaction, tenant_id={tid}")
+        # Verify immediately after commit
+        result = await conn.execute(text("SELECT id FROM tenants WHERE id = :tid"), {"tid": tid})
+        row = result.fetchone()
+        print(f"DEBUG tenant_a fixture: verify after commit = {row}")
+    # Verify after context manager exits (should be committed)
+    async with db_engine.begin() as conn2:
+        result = await conn2.execute(text("SELECT id FROM tenants WHERE id = :tid"), {"tid": tid})
+        row = result.fetchone()
+        print(f"DEBUG tenant_a fixture: verify in new transaction = {row}")
     return {
         "id": tid,
         "short_code": "TENANT_A",

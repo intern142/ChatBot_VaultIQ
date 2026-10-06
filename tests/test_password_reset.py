@@ -484,9 +484,13 @@ class TestRowLevelSecurity:
     """
 
     @pytest.fixture
-    def seeded(self, db_conn):
+    def seeded(self, db_conn, db_engine):
         """Two tenants, one user each, one live reset code in tenant A."""
+        # Ensure clean state (db_engine fixture truncates, but only if it runs)
         cur = db_conn.cursor()
+        cur.execute("TRUNCATE users, tenants, sessions, documents, invites, audit_logs, reset_codes CASCADE")
+        db_conn.commit()
+        
         cur.execute(
             "INSERT INTO tenants (short_code, name) VALUES ('RA', 'Rls A') "
             "RETURNING id"

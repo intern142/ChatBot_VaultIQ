@@ -237,11 +237,14 @@ async def create_invite(
     # read zero rows, find none, and allow a second invite to be issued - a
     # silent check-then-act failure that only appears under the real app role.
     await set_tenant_context(db, str(tenant_id))
+    print(f"DEBUG create_invite: tenant_id={tenant_id}, context set")
 
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
+    print(f"DEBUG create_invite: tenant query result={tenant}")
 
     if not tenant:
+        print(f"DEBUG create_invite: TENANT NOT FOUND for id={tenant_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     if tenant.status != TenantStatus.active:
