@@ -22,9 +22,29 @@ from app.main import app
 
 settings = get_settings()
 
+# Two distinct database identities are used by the test suite:
+#
+#   ADMIN_DATABASE_URL - the migration/DDL identity (local dev: the `vaultiq`
+#       superuser). Used ONLY to truncate and seed fixtures. It has BYPASSRLS
+#       so it can see every row, which is exactly what we do not want the
+#       application to be able to do.
+#
+#   APP_DATABASE_URL - the identity the application under test actually uses.
+#       Defaults to `vaultiq_app`, which is NOBYPASSRLS, so every request the
+#       suite makes has row-level security genuinely enforced.
+#
+# The default must be the NOBYPASSRLS role. Running the suite against the
+# superuser silently disables every RLS policy and makes the whole tenant
+# isolation suite meaningless.
+
+ADMIN_DATABASE_URL = os.environ.get("ADMIN_DATABASE_URL", settings.DATABASE_URL)
+APP_DATABASE_URL = os.environ.get(
+    "APP_DATABASE_URL",
+    ADMIN_DATABASE_URL.replace("vaultiq:vaultiq_secret", "vaultiq_app:vaultiq_secret"),
+)
 
 test_app_engine = create_async_engine(
-    settings.DATABASE_URL,
+    APP_DATABASE_URL,
     echo=False,
     poolclass=NullPool,
 )
@@ -54,16 +74,24 @@ def use_test_app_database():
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Single event loop for the whole suite.
+    """Single event loop for the whole suite."""
 
-    The app creates a module-level async engine (app.database). Routing each
-    test through its own event loop means the pool can hand a connection bound
-    to a previously-closed loop to a later test (asyncpg flakes). A shared
-    session loop keeps every pooled connection on a live loop.
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+
+async def override_get_db():
+    async with test_app_session_factory() as session:
+        yield session
+
+
+@pytest.fixture(autouse=True)
+def use_test_app_database():
+    missing = object()
+    previous = app.dependency_overrides.get(get_db, missing)
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    if previous is missing:
+        app.dependency_overrides.pop(get_db, None)
+    else:
+        app.dependency_overrides[get_db] = previous
 
 
 @pytest.fixture(scope="function")
@@ -92,7 +120,7 @@ async def db_engine():
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     # Truncate at start of each test function
     async with engine.begin() as conn:
@@ -119,7 +147,7 @@ async def app_db_engine():
     engine = create_async_engine(
         app_url,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     yield engine
     await engine.dispose()
@@ -131,7 +159,7 @@ async def app_db_session(app_db_engine):
     admin_engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        pool_pre_ping=True,
+        poolclass=NullPool,
     )
     async with admin_engine.begin() as conn:
         await conn.execute(text("TRUNCATE users, tenants, sessions CASCADE"))
@@ -307,8 +335,9 @@ async def doc_a(async_client, token_a_admin):
     """Upload a document for tenant A."""
     file_content = b"Tenant A document content"
     files = {"file": ("test_a.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_a_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 
@@ -318,8 +347,9 @@ async def doc_b(async_client, token_b_admin):
     """Upload a document for tenant B."""
     file_content = b"Tenant B document content"
     files = {"file": ("test_b.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"category": "policy"}
     headers = {"Authorization": f"Bearer {token_b_admin}"}
-    resp = await async_client.post("/documents", files=files, headers=headers)
+    resp = await async_client.post("/documents", files=files, data=data, headers=headers)
     assert resp.status_code == 201
     return resp.json()
 

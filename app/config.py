@@ -19,6 +19,35 @@ class Settings(BaseSettings):
     # no wildcards: the API is credentialed (Bearer token) and a wildcard with
     # allow_credentials is rejected by browsers anyway.
     CORS_ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    MAX_FILE_SIZE_MB: int = 50
+    # MIME types allowed based on file CONTENT (python-magic), not just extension/header
+    ALLOWED_MIME_TYPES: str = (
+        "application/pdf,"
+        "text/plain,"
+        "text/markdown,"
+        "application/msword,"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+        "application/vnd.ms-excel,"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+        "text/csv,"
+        "application/vnd.ms-powerpoint,"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+        "application/vnd.oasis.opendocument.text,"
+        "application/vnd.oasis.opendocument.spreadsheet,"
+        "application/rtf,"
+        "application/epub+zip,"
+        "application/vnd.ms-outlook,"
+        "message/rfc822,"
+        "image/tiff,"
+        "image/png,"
+        "image/jpeg"
+    )
+    OCR_REQUIRED: bool = False
+    OCR_TIMEOUT_SECONDS: int = 90
+    OCR_MAX_PAGES: int = 20
+    OCR_MAX_TEXT_CHARS: int = 1_000_000
+    OCR_RENDER_DPI: int = 200
+    OCR_MAX_CONCURRENT_DOCUMENTS: int = 2
 
 
 @lru_cache()
