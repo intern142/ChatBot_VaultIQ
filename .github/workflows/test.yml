@@ -13,13 +13,16 @@ on:
       - vq-201-tenant-upload
       - vq-202-approval-versioning
       - vq-203
+      - vq-210-tenant-cache
       - vq-301-password-reset
+      - vq-304
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
