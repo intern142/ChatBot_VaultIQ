@@ -336,7 +336,7 @@ async def _tenant_vocabulary(db: AsyncSession, tenant_id: uuid.UUID) -> List[str
     sql = text("""
         SELECT word
         FROM (
-            SELECT lower(unnest(regexp_split_to_array(content, '[^a-z0-9'']+'))) AS word
+            SELECT lower(unnest(regexp_split_to_array(content, '[^a-zA-Z0-9'']+'))) AS word
             FROM document_chunks
             WHERE tenant_id = :tenant_id
         ) t

@@ -491,3 +491,59 @@ async def test_seeded_chunks_in_document_and_out_of_document(
         assert payload["spellcheck"]["applied"] is True
         assert payload["spellcheck"]["corrected"] == "what is the annual leave policy"
         assert payload["answer_phrase"] in content
+
+
+@pytest.mark.asyncio
+async def test_vocabulary_keeps_capitalized_words_intact(
+    async_client, token_a_admin, tenant_a, db_engine
+):
+    """A capitalized leading word must survive the vocabulary split intact.
+
+    Regression: the tenant-vocabulary tokenizer used a [a-z0-9] class, so
+    the first letter of any capitalized word was treated as a delimiter and
+    eaten ('vacation' -> 'acation' once lowercased). The spellchecker then
+    "corrected" intact query words into those mangled forms, which broke
+    retrieval for perfectly-obvious in-document questions.
+    """
+    tenant_id = tenant_a["id"]
+    admin_uid = tenant_a["client_admin"]["id"]
+    partition = "document_chunks_p_" + str(tenant_id).replace("-", "")
+
+    content = (
+        "Vacation requests must be submitted at least two weeks in advance. "
+        "Expense reports over five hundred dollars require director approval."
+    )
+
+    async with db_engine.begin() as conn:
+        await conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS {partition}
+            PARTITION OF document_chunks FOR VALUES IN ('{tenant_id}')
+        """))
+        doc = await conn.execute(text("""
+            INSERT INTO documents (id, tenant_id, original_filename, stored_filename,
+                                   mime_type, size_bytes, uploaded_by)
+            VALUES (gen_random_uuid(), :tid, 'policies.txt', 'policies.txt', 'text/plain', 256, :uid)
+            RETURNING id
+        """), {"tid": tenant_id, "uid": admin_uid})
+        doc_id = doc.scalar()
+        embedding = "[" + ",".join(["0.1"] * 384) + "]"
+        await conn.execute(text("""
+            INSERT INTO document_chunks (tenant_id, document_id, chunk_index, content, embedding)
+            VALUES (:tid, :doc_id, 0, :content, :embedding)
+        """), {"tid": tenant_id, "doc_id": doc_id, "content": content, "embedding": embedding})
+
+    from app.services.answers import _tenant_vocabulary, _correct_query
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    session = AsyncSession(bind=db_engine)
+    vocab = await _tenant_vocabulary(session, tenant_id)
+    await session.close()
+    words = set(vocab)
+    for intact in ("vacation", "expense", "reports", "submitted", "director"):
+        assert intact in words, f"capitalized word {intact!r} was mangled in the vocabulary"
+
+    corrected, corrections = _correct_query(
+        "how far in advance must vacation requests be submitted", vocab
+    )
+    assert corrected == "how far in advance must vacation requests be submitted"
+    assert corrections == []
