@@ -4,6 +4,10 @@ import type {
   DocumentListResponse,
   StorageUsageResponse,
   PreviewResponse,
+  ApprovalDecisionRequest,
+  SearchableDocumentsResponse,
+  VersionHistoryResponse,
+  ProcessingStatusResponse,
 } from './types';
 
 export const listDocuments = (page = 1, pageSize = 20) =>
@@ -11,9 +15,11 @@ export const listDocuments = (page = 1, pageSize = 20) =>
     params: { page, page_size: pageSize },
   });
 
-export const uploadDocument = (file: File) => {
+export const uploadDocument = (file: File, category: string, replaces?: string) => {
   const fd = new FormData();
   fd.append('file', file);
+  fd.append('category', category);
+  if (replaces) fd.append('replaces', replaces);
   return request<DocumentResponse>('/documents', {
     method: 'POST',
     body: fd,
@@ -42,3 +48,29 @@ export const deleteDocument = (id: string) =>
 
 export const getStorageUsage = () =>
   request<StorageUsageResponse>('/documents/usage');
+
+export const approveDocument = (id: string, body: ApprovalDecisionRequest = {}) =>
+  request<DocumentResponse>(`/documents/${id}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const rejectDocument = (id: string, body: ApprovalDecisionRequest = {}) =>
+  request<DocumentResponse>(`/documents/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const getVersionHistory = (id: string) =>
+  request<VersionHistoryResponse>(`/documents/${id}/versions`);
+
+export const listSearchableDocuments = () =>
+  request<SearchableDocumentsResponse>('/documents/searchable/approved');
+
+export const getDocumentStatus = (id: string) =>
+  request<ProcessingStatusResponse>(`/documents/${id}/status`);
+
+export const reprocessDocument = (id: string) =>
+  request<ProcessingStatusResponse>(`/documents/${id}/reprocess`, {
+    method: 'POST',
+  });

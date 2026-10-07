@@ -9,6 +9,17 @@ export const ALLOWED_MIME_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/epub+zip',
+  'message/rfc822',
+  'image/png',
+  'image/jpeg',
+  'image/tiff',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.oasis.opendocument.presentation',
+  'application/x-ole-storage',
 ] as const;
 
 export const MAX_FILE_SIZE_MB = 50;

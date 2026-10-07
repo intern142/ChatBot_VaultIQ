@@ -5,6 +5,8 @@ import type {
   InviteCreate,
   InviteResponse,
   AuditLogResponse,
+  TenantSettingsResponse,
+  TenantSettingsUpdateSuperAdmin,
 } from './types';
 
 export const listTenants = () =>
@@ -34,3 +36,12 @@ export const inviteTenantAdmin = (id: string, body: InviteCreate) =>
 
 export const getTenantAudit = (id: string) =>
   request<AuditLogResponse[]>(`/admin/tenants/${id}/audit`);
+
+export const getTenantSettings = (id: string) =>
+  request<TenantSettingsResponse>(`/admin/tenants/${id}/settings`);
+
+export const updateTenantSettings = (id: string, body: TenantSettingsUpdateSuperAdmin) =>
+  request<TenantSettingsResponse>(`/admin/tenants/${id}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });

@@ -110,6 +110,8 @@ export default function DocumentsPage() {
           documents={documents}
           onDelete={handleDelete}
           canDelete={isClientAdmin}
+          canApprove={isClientAdmin}
+          canReprocess={isClientAdmin}
           loading={loading}
         />
       )}

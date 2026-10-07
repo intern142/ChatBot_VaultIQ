@@ -3,3 +3,5 @@ export { useDocuments, useStorageUsage } from './useDocuments';
 export { useTenants } from './useTenants';
 export { useAsync } from './useAsync';
 export { useUpload } from './useUpload';
+export { useDocumentApproval } from './useDocumentApproval';
+export { useDocumentProcessing } from './useDocumentProcessing';

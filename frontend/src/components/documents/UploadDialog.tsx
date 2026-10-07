@@ -2,6 +2,7 @@ import { useState, ChangeEvent } from 'react';
 import { uploadDocument } from '../../api/documents';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
+import { Select } from '../ui/Select';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB } from '../../config';
 
 interface UploadDialogProps {
@@ -10,12 +11,25 @@ interface UploadDialogProps {
   onSuccess: () => void;
 }
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv'];
+const ALLOWED_EXTENSIONS = [
+  '.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv',
+  '.odt', '.ods', '.epub', '.eml', '.png', '.jpg', '.jpeg', '.tiff', '.tif',
+  '.pptx', '.ppt', '.odp', '.msg',
+] as const;
+
+const CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: 'policy', label: 'Policy' },
+  { value: 'hr', label: 'HR' },
+  { value: 'sop', label: 'SOP' },
+  { value: 'process', label: 'Process' },
+  { value: 'other', label: 'Other' },
+];
 
 export function UploadDialog({ open, onClose, onSuccess }: UploadDialogProps) {
   if (!open) return null;
 
   const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState('other');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +41,7 @@ export function UploadDialog({ open, onClose, onSuccess }: UploadDialogProps) {
       return `Unsupported file type. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`;
     }
     const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    if (!ALLOWED_EXTENSIONS.includes(ext as any)) {
       return `Unsupported file extension. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`;
     }
     return null;
@@ -52,7 +66,7 @@ export function UploadDialog({ open, onClose, onSuccess }: UploadDialogProps) {
     setLoading(true);
     setError(null);
     try {
-      await uploadDocument(file);
+      await uploadDocument(file, category);
       onSuccess();
     } catch (err: any) {
       setError(err.message);
@@ -97,6 +111,16 @@ export function UploadDialog({ open, onClose, onSuccess }: UploadDialogProps) {
                 </>
               )}
             </label>
+          </div>
+          <div style={styles.categoryField}>
+            <label style={styles.categoryLabel} htmlFor="category">Category</label>
+            <Select
+              id="category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              options={CATEGORIES}
+              disabled={loading}
+            />
           </div>
         </div>
         <div style={styles.footer}>
@@ -164,6 +188,14 @@ const styles: Record<string, React.CSSProperties> = {
   selectedFile: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: '300px', padding: '12px', background: '#f1f5f9', borderRadius: '8px' },
   fileName: { fontWeight: 500, fontSize: '14px' },
   fileSize: { fontSize: '13px', color: '#64748b' },
+  categoryField: {
+    marginTop: '16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    width: '100%',
+  },
+  categoryLabel: { fontSize: '14px', fontWeight: 500, color: '#334155' },
   footer: {
     display: 'flex',
     justifyContent: 'flex-end',

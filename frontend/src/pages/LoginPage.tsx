@@ -1,7 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { login } from '../api/auth';
-import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Alert } from '../components/ui/Alert';
@@ -9,7 +8,6 @@ import { Alert } from '../components/ui/Alert';
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: setAuth } = useAuth();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
 
   const [form, setForm] = useState({
@@ -25,8 +23,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const data = await login(form);
-      setAuth(data.access_token, data.role, data.tenant_id);
+      await login(form);
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Login failed');

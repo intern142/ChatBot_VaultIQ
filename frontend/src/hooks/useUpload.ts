@@ -7,7 +7,7 @@ export function useUpload() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
-  const upload = useCallback(async (file: File): Promise<DocumentResponse | null> => {
+  const upload = useCallback(async (file: File, category = 'other'): Promise<DocumentResponse | null> => {
     setLoading(true);
     setError(null);
     setProgress(0);
@@ -17,7 +17,7 @@ export function useUpload() {
         setProgress((p) => Math.min(p + 10, 90));
       }, 100);
 
-      const result = await uploadDocument(file);
+      const result = await uploadDocument(file, category);
       clearInterval(progressInterval);
       setProgress(100);
       return result;

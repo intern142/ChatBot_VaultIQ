@@ -1,20 +1,22 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { refresh, logout as apiLogout } from '../api/auth';
-import type { UserRole } from '../api/types';
-import { getToken, clearAuth } from '../api/client';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { login as apiLogin, refresh, logout as apiLogout } from '../api/auth';
+import type { UserRole, AuthUser } from '../api/types';
+import { clearAuth, setAuth } from '../api/client';
 
 interface AuthState {
   token: string | null;
   role: UserRole | null;
   tenantId: string | null;
+  user: AuthUser | null;
   loading: boolean;
   error: string | null;
 }
 
 interface AuthContextValue extends AuthState {
-  login: (token: string, role: UserRole, tenantId: string | null) => void;
-  bootstrap: () => Promise<void>;
+  login: (tokenOrData: string | { organisation_code: string; email: string; password: string }, role?: UserRole, tenantId?: string | null) => Promise<void>;
   logout: () => Promise<void>;
+  clearError: () => void;
+  bootstrap: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,22 +26,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     token: null,
     role: null,
     tenantId: null,
+    user: null,
     loading: true,
     error: null,
   });
 
+  const clearError = useCallback(() => setState(s => ({ ...s, error: null })), []);
+
   const bootstrap = useCallback(async () => {
-    const token = getToken();
+    const token = localStorage.getItem('vaultiq_token');
     if (!token) {
-      setState((s) => ({ ...s, loading: false }));
+      setState(s => ({ ...s, loading: false }));
       return;
     }
     try {
       const { role, tenant_id } = await refresh();
+      const user: AuthUser = {
+        name: '',
+        role,
+        organization: tenant_id || '',
+        email: '',
+      };
       setState({
         token,
         role,
         tenantId: tenant_id,
+        user,
         loading: false,
         error: null,
       });
@@ -49,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token: null,
         role: null,
         tenantId: null,
+        user: null,
         loading: false,
         error: null,
       });
@@ -59,8 +72,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     bootstrap();
   }, [bootstrap]);
 
-  const login = (token: string, role: UserRole, tenantId: string | null) => {
-    setState({ token, role, tenantId, loading: false, error: null });
+  const login = async (
+    tokenOrData: string | { organisation_code: string; email: string; password: string },
+    role?: UserRole,
+    tenantId?: string | null
+  ) => {
+    setState(s => ({ ...s, error: null }));
+    try {
+      if (typeof tokenOrData === 'string') {
+        setState(s => ({ ...s, token: tokenOrData, role: role || null, tenantId: tenantId || null, loading: false, error: null }));
+      } else {
+        const res = await apiLogin(tokenOrData);
+        setAuth(res.access_token, res.role, res.tenant_id);
+        const user: AuthUser = {
+          name: '',
+          role: res.role,
+          organization: res.tenant_id || '',
+          email: tokenOrData.email,
+        };
+        setState(s => ({
+          ...s,
+          token: res.access_token,
+          role: res.role,
+          tenantId: res.tenant_id,
+          user,
+          loading: false,
+          error: null,
+        }));
+      }
+    } catch (err) {
+      setState(s => ({ ...s, error: err instanceof Error ? err.message : 'Login failed' }));
+      throw err;
+    }
   };
 
   const logout = async () => {
@@ -68,13 +111,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await apiLogout();
     } finally {
       clearAuth();
-      setState({ token: null, role: null, tenantId: null, loading: false, error: null });
+      setState({ token: null, role: null, tenantId: null, user: null, loading: false, error: null });
       window.location.href = '/login';
     }
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, login, bootstrap, logout }}>
+    <AuthContext.Provider value={{ ...state, login, bootstrap, logout, clearError }}>
       {children}
     </AuthContext.Provider>
   );
