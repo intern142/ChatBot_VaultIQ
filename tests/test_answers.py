@@ -25,8 +25,10 @@ from app.services.answers import (
     NO_ANSWER_RELEVANCE_FLOOR,
     PARTIAL_CONFIDENCE,
     _correct_query,
+    _corpus_supported_terms,
     _extract_answer_phrase,
     _recalibrate_confidence,
+    _relevance_terms,
     _route_by_confidence,
     _suggest_followups,
     answer_question,
@@ -110,6 +112,43 @@ def test_recalibrate_confidence_never_increases():
     assert _recalibrate_confidence(60.0, 0.50) < 60.0
     assert _recalibrate_confidence(60.0, 0.00) < 60.0
     assert _recalibrate_confidence(100.0, 0.0) < 100.0
+
+
+# ---- Corpus-supported relevance (Gate 6 find: paraphrase penalty) ------
+
+def test_corpus_drops_terms_the_corpus_never_uses():
+    """A query term absent from the corpus must not count against relevance.
+
+    Regression: "expense approval limit" scored relevance 2/3 = 0.67
+    because the corpus says "$500 requires approval" but never "limit";
+    the resulting confidence penalty (47.9) pushed a correct in-document
+    answer below the partial threshold into no_answer.
+    """
+    vocab = ["expense", "approval", "reports", "director", "level"]
+    terms, ok = _corpus_supported_terms("what is the expense approval limit?", vocab)
+    assert ok
+    assert terms == ["expense", "approval"]
+    phrase = "Expense reports over $500 require director-level approval."
+    assert _relevance_terms(terms, phrase) == 1.0
+
+
+def test_corpus_coverage_rejects_questions_it_cannot_talk_about():
+    """No coverage guard = a single shared word could smuggle an
+    off-topic question past the relevance floor (HeXta scope-guard class)."""
+    vocab = ["code", "reviews", "mandatory", "production"]
+    terms, ok = _corpus_supported_terms("what is the dress code?", vocab)
+    assert not ok, "'dress' is unknown to the corpus: 1/2 coverage must fail"
+    _, ok = _corpus_supported_terms(
+        "how many public holidays are granted each year?",
+        ["year", "retention", "records"],
+    )
+    assert not ok, "'year' alone (1/4 coverage) must not carry the question"
+
+
+def test_corpus_guard_skipped_without_vocabulary():
+    terms, ok = _corpus_supported_terms("what is the expense approval limit?", [])
+    assert ok, "no vocabulary to check against -> old behaviour"
+    assert "limit" in terms
 
 
 # ---- Extractive answer-phrase selection --------------------------------
@@ -347,6 +386,27 @@ class TestAnswerService:
         mocked_search.assert_awaited()
         call_kwargs = mocked_search.call_args.kwargs
         assert call_kwargs["query"] == "how many days of annual leave per year"
+
+    @pytest.mark.asyncio
+    async def test_paraphrase_term_does_not_kill_in_document_answer(self):
+        """Gate 6 find: a corpus-absent query word must not drag a correct
+        in-document answer from partial into no_answer."""
+        mock_db = self._mock_db()
+        content = "Expense reports over $500 require director-level approval."
+        # Base confidence is exactly 50.0; the old paraphrase penalty
+        # (relevance 2/3) multiplied it to 47.9 -> no_answer.
+        response = _search_response([(content, 0.5 / 61)])
+        vocab = ["expense", "approval", "reports", "director", "level",
+                 "required", "over"]
+        with patch("app.services.answers.hybrid_search", new=AsyncMock(return_value=response)), \
+             patch("app.services.answers._tenant_vocabulary",
+                   new=AsyncMock(return_value=vocab)):
+            result = await answer_question(
+                db=mock_db, tenant_id=uuid.uuid4(),
+                question="what is the expense approval limit?",
+            )
+        assert result.routing in ("answer", "partial")
+        assert result.answer_phrase in content
 
     @pytest.mark.asyncio
     async def test_deterministic_response(self):

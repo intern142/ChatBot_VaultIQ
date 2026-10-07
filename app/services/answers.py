@@ -141,6 +141,53 @@ def _relevance(question: str, text: str) -> float:
     return sum(1 for t in terms if _term_present(t, text)) / len(terms)
 
 
+# Minimum fraction of a question's corpus-checkable terms that must exist
+# in the tenant's own vocabulary before retrieval may be judged at all.
+# HeXta enforced the equivalent with corpus_supported_groups plus its
+# scope guard; we keep a strict-majority guard because without it a
+# one-word overlap ("year", "code") could carry an off-topic question
+# past the relevance floor (verified against 5 in / 5 out demo questions:
+# in-document coverage is >= 0.67, out-of-document is <= 0.50, so the
+# floor is exclusive).
+_CORPUS_COVERAGE_FLOOR = 0.5
+
+
+def _corpus_supported_terms(question: str, vocabulary: List[str]) -> Tuple[List[str], bool]:
+    """Query content terms the tenant's own corpus actually uses.
+
+    Returns ``(relevance_terms, coverage_ok)``.
+
+    ``relevance_terms`` drops query terms missing from the corpus
+    (HeXta's corpus_supported_groups): demanding that evidence contain
+    "limit" when the corpus only ever says "$500 requires approval" is a
+    paraphrase penalty, not a relevance signal, and it used to drag a
+    correct in-document answer below the partial threshold.
+
+    ``coverage_ok`` is False when a minority of the question's checkable
+    terms exist in the corpus — the corpus cannot talk about the question,
+    so no retrieved chunk may be presented as its answer (this replaces
+    HeXta's scope guard). With no vocabulary to check against (empty
+    corpus, or a caller that has none) the guard is skipped and all
+    content terms are used, as before.
+    """
+    terms = _content_terms(question)
+    if not vocabulary:
+        return terms, True
+    checkable = [t for t in terms if len(t) >= _TOKEN_FOR_CORRECTION_MIN]
+    if not checkable:
+        return terms, True
+    vocab_stems = {_stem(w) for w in vocabulary}
+    supported = [t for t in checkable if _stem(t) in vocab_stems]
+    return supported, len(supported) / len(checkable) > _CORPUS_COVERAGE_FLOOR
+
+
+def _relevance_terms(terms: List[str], text: str) -> float:
+    """Fraction of ``terms`` present in ``text`` (0..1; 0.0 when empty)."""
+    if not terms:
+        return 0.0
+    return sum(1 for t in terms if _term_present(t, text)) / len(terms)
+
+
 def _merge_abbreviation_fragments(fragments: List[str]) -> List[str]:
     """Join a fragment ending in a single-capital-letter abbreviation with
     whatever the sentence splitter cut off after it ("Jordan A. Rivera.")."""
@@ -484,9 +531,19 @@ async def answer_question(
                     break
 
     phrase_used = answer_phrase or top_excerpt
+    relevance_terms, coverage_ok = _corpus_supported_terms(question, vocabulary)
+    if not coverage_ok:
+        # The corpus cannot talk about most of this question, so no
+        # retrieved chunk is an answer to it — clean refusal, no excerpt.
+        return AnswerResponse(
+            question=question,
+            routing="no_answer",
+            confidence=round(_base_confidence(results[0].score), 1),
+            spellcheck=spellcheck,
+        )
     relevance = max(
-        _relevance(question, phrase_used),
-        _relevance(question, top_excerpt),
+        _relevance_terms(relevance_terms, phrase_used),
+        _relevance_terms(relevance_terms, top_excerpt),
     )
     if relevance < NO_ANSWER_RELEVANCE_FLOOR:
         return AnswerResponse(
