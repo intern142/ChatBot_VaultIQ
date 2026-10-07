@@ -108,10 +108,10 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: **`vq-207`** (working: VQ-207 answer engine — pushed `f20e561`)
-- Current task: **VQ-207** — Answer engine is retrieval-only; remove the LLM layer (Gates 1-3 ✅, building on merged VQ-205 search)
+- Current branch: **`vq-207`** (working: VQ-207 answer engine — pushed `0695de5`)
+- Current task: **VQ-207** — Answer engine is retrieval-only; remove the LLM layer (**Gates 1-4 ✅**, PR #15 open, **Gate 6 in progress** — see VQ-207 section for live-run findings)
 - Other branches: `vq-201` (PR #10), `vq-202` (PR #11), `vq-203` (PR #13), `vq-301` (PR #14), `vq-303` (Gates 1-6 ✅, not merged)
-- Test suite: **188 passed** (test_answers 33 + permissions 21 + isolation 49 + rest 105)
+- Test suite: **189 passed** (test_answers 34 + permissions 21 + isolation 49 + rest 85)
 - Merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 
 ## Known Defects (must be fixed before VQ-202)
@@ -767,11 +767,22 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 
 ---
 
-### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct** — **Gates 1-3 ✅ (Gate 2+3 refreshed 6 Oct)**
+### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct** — **Gates 1-4 ✅, Gate 6 in progress (vocab bug found + fixed)**
 **Depends on:** VQ-205
 **Branch:** `vq-207` (from main `161eb6f`, fast-forward merged `vq-205` at `0d0bc56`)
 **Commits:** `f20e561` (Gate 2 build) — pushed to origin/vq-207
 **Objective:** VaultIQ answers strictly by finding and returning the right passage from the tenant's approved documents. There is no generated text anywhere, and HeXta's optional LLM layer is removed entirely.
+
+> **⚠️ Live run bug found and fixed (uncommitted on disk as of the last push).**
+> The tenant-vocabulary tokenizer used `[^a-z0-9']` as the delimiter class, so a
+> **capitalised sentence-initial word lost its first letter** (`Vacation` →
+> `acation`, `Expense` → `xpense`, `Remote` → `emote`). The spellchecker then
+> "corrected" perfectly good query words into those mangled forms, which broke
+> retrieval for obviously-in-document questions (2 of 5 in the first live demo
+> wrongly routed `no_answer`). Fixed in `app/services/answers.py`
+> (`[^a-zA-Z0-9']`), regression test `test_vocabulary_keeps_capitalized_words_intact`
+> added to `tests/test_answers.py`. Gate 3 re-verified: **34 passed** (answers),
+> **70 passed** (isolation + permissions).
 
 > **Key finding:** VaultIQ (this repo, all branches) has **no LLM of any kind
 > and no answer engine**. It is a separate application from HeXta
@@ -810,19 +821,31 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 - No LLM anywhere: `BANNED_SDK_PREFIXES` (openai/anthropic/langchain/llama_index/litellm/.../torch/transformers) — source scan confirms zero imports; no banned tokens anywhere in `app/`.
 
 ### Gate 3: Tests Green ✅
-- `tests/test_answers.py` — **33 tests** covering: no-LLM guards (source import scan, banned-token scan, `AnswerResponse` has no `synthesized`/`llm_model`, SDK packages `find_spec is None`), routing boundaries, recalibration never increases, phrase extraction (verbatim/heading/footer/question stripping, short fallback, truncation, number preference, abbreviation merge, determinism), spellcheck (typo correct, numbers never, real corpus term never rewritten), follow-ups tenant-content-only, service routing (answer/partial/no_answer, bug 2, spellcheck echo, determinism), endpoint wiring (403 no-token, 401 bad token, 403 super admin, 200 tenant user), and a **seeded end-to-end test** (real partition + document + chunk, real hybrid SQL; only the query embedding is patched) proving in-doc → answer, out-of-doc → clean no_answer, and real-vocab spellcheck confirmation.
+- `tests/test_answers.py` — **34 tests** covering: no-LLM guards (source import scan, banned-token scan, `AnswerResponse` has no `synthesized`/`llm_model`, SDK packages `find_spec is None`), routing boundaries, recalibration never increases, phrase extraction (verbatim/heading/footer/question stripping, short fallback, truncation, number preference, abbreviation merge, determinism), spellcheck (typo correct, numbers never, real corpus term never rewritten), follow-ups tenant-content-only, service routing (answer/partial/no_answer, bug 2, spellcheck echo, determinism), endpoint wiring (403 no-token, 401 bad token, 403 super admin, 200 tenant user), a **seeded end-to-end test** (real partition + document + chunk, real hybrid SQL; only the query embedding is patched) proving in-doc → answer, out-of-doc → clean no_answer, and real-vocab spellcheck confirmation, and the **Gate 6 regression test `test_vocabulary_keeps_capitalized_words_intact`** (capitalised first letters survive the tokenizer; no false correction).
 - `tests/isolation_manifest.py` — added `("POST", "/answers")`.
 - `tests/test_isolation_suite.py` — added `"/answers"` to `tenant_scoped_prefixes` + `TestAnswerEndpoints` (cross-tenant body-leak, super-admin 403).
 - Per-file runs, all green:
-  - `tests/test_answers.py` → **33 passed**
+  - `tests/test_answers.py` → **34 passed**
   - `tests/test_permissions.py` → **21 passed** (router-walk: ROLE_MATRIX now complete)
   - `tests/test_isolation_suite.py` → **49 passed**
   - `tests/test_auth.py test_documents.py test_rls.py test_search.py test_tenant.py test_tenant_context.py test_tenant_lifecycle.py` → **105 passed**
-  - Combined re-run of touched files (`test_answers + test_permissions + test_isolation_suite`) → **103 passed in 2:34**
-  - **Total: 188 passed**
+  - Combined re-run of touched files (`test_answers + test_permissions + test_isolation_suite`) → **104 passed** (34 + 21 + 49)
+  - **Total: 189 passed**
 - Note: a single `tests/ -q` run exceeded the 15-min shell tool cap (was cut at 38%); every file was re-run and passed individually. FastEmbed needs ~6.5s/model load per fresh process — no download, offline OK.
 
-**Pending:** Gate 4 (self-review vs ACs + `VQ207_SELF_REVIEW.md` + open PR), Gate 5 (lead review), Gate 6 (live container: 5 in-doc + 5 out-of-doc questions, benchmark no-regression), Gate 7 (Friday demo)
+### Gate 4: Self-Review ✅
+- `VQ207_SELF_REVIEW.md` written — all 5 ACs walked and confirmed with file/line evidence, checklist ticked, Must-Be-Proven split (no-LLM proof done in Gate 3; benchmark + live evidence scheduled for Gate 6). Committed `0695de5`.
+- **PR #15 opened** (`vq-207` → `main`, 6 commits, +3032/−10).
+- PR note: the diff stacks on VQ-205 (no open PR), so it also carries the VQ-205 search stack; re-targetable after VQ-205 merges.
+
+### Gate 6: Live Container Verify (in progress)
+**Environment:** Docker `vaultiq-db` (pgvector, port 5433) up; `uvicorn app.main:app` on `127.0.0.1:8000`; app connects as `vaultiq` (dev superuser — RLS inert, standard live-run identity). `alembic current` on the live DB **fails** because the DB is stamped `011_super_admin_grants` (VQ-303 file not on this branch's lineage — DB is a schema superset of 001-010). Schema supports everything `/answers` needs.
+**Seeded data:** recreated `TENANT_A`/`TENANT_B` with the **same UUIDs as the VQ-205 baseline** (`8d3131c0-…`, `6c290cd3-…`), **4998 chunks + 1666 docs** each, real FastEmbed embeddings, client admins `admin_a@tenant.com` / `admin_b@tenant.com` (`TestPass123!`).
+**First demo (pre-fix):** 5 in-document + 5 out-of-document questions → **out-of-doc all clean `no_answer`** (empty phrase/sources/followups — bug 2 guard holds live), but 2 in-doc questions wrongly `no_answer` → traced to the **vocabulary tokenizer bug** (see header note). Fixed + regression test added.
+**Post-fix demo / benchmark / live isolation suite:** not yet re-run (any `pytest` run against this DB **TRUNCATES** tenants/users/documents via `tests/conftest.py` lines 74/99 — so the corpus must be re-seeded after each pytest run; order is seed → demo → benchmark → live suite last).
+**Routing calibration note (not a bug):** `_base_confidence` assumes unweighted RRF, but `hybrid_search` applies `hybrid_weight=0.5`, so a top chunk that is #1 in only one list caps at confidence ≈50 (`partial`); a chunk #1 in BOTH lists reaches ≈100 (`answer`). In-doc questions therefore legitimately land `answer`/`partial`; demo evidence is expected to show a mix.
+
+**Pending:** Gate 5 (lead review), Gate 6 remaining runs (re-seed after pytest wipe → 5+5 demo on fixed build → benchmark vs `benchmark_baseline_vq205.json` → live isolation suite), Gate 7 (Friday demo)
 
 ---
 
@@ -938,7 +961,7 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > with the setting unset raises an error instead of returning no rows.
 
 ## Test Counts
-- **188** — current, on `vq-207` (`f20e561`): test_answers 33 + permissions 21 + isolation 49 + rest 105.
+- **189** — current, on `vq-207` (`0695de5` + uncommitted vocab fix on disk): test_answers 34 + permissions 21 + isolation 49 + rest 105.
   Per-file runs (a single `tests/ -q` exceeds the 15-min shell cap at ~38%).
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
