@@ -5,6 +5,8 @@ import {
   HomeIcon,
   UsersIcon,
   FileTextIcon,
+  SearchIcon,
+  MessageSquareIcon,
   LogOutIcon,
   MenuIcon,
   XIcon,
@@ -21,6 +23,8 @@ export function Layout() {
     { path: '/dashboard/tenants', label: 'Tenants', icon: BuildingIcon, roles: ['super_admin'] },
     { path: '/dashboard/users', label: 'Users', icon: UsersIcon, roles: ['super_admin', 'client_admin'] },
     { path: '/dashboard/documents', label: 'Documents', icon: FileTextIcon, roles: ['super_admin', 'client_admin'] },
+    { path: '/search', label: 'Search', icon: SearchIcon, roles: ['client_admin', 'employee'] },
+    { path: '/answers', label: 'Answers', icon: MessageSquareIcon, roles: ['client_admin', 'employee'] },
   ];
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role ?? ''));
@@ -104,5 +108,7 @@ function getPageTitle(): string {
   if (path.includes('/tenants')) return 'Tenants';
   if (path.includes('/users')) return 'Users';
   if (path.includes('/documents')) return 'Documents';
+  if (path === '/search') return 'Search';
+  if (path === '/answers') return 'Answers';
   return 'Dashboard';
 }

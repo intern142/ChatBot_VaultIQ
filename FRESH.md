@@ -245,7 +245,45 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ---
 
-# PHASE 6 — SEARCH & ANSWERS (VQ-204, VQ-207) — **PENDING**
+# PHASE 6 — SEARCH & ANSWERS (VQ-204, VQ-207) — **COMPLETED**
+
+## VQ-204: Document Search
+**Backend Contract:** `POST /search` — hybrid keyword + vector search across approved documents, returns scored chunks with document metadata. `POST /search/suggest` — query autocomplete suggestions.
+
+**Frontend Components Created:**
+- `src/hooks/useSearch.ts` - Hook with query state, search execution, suggestion fetching (debounced), showSuggestions toggle, results/loading/error state
+- `src/pages/SearchPage.tsx` at `/search` - Search input with suggestion dropdown, results list showing filename, relevance score, content excerpt, document/chunk metadata
+- `src/routes/index.tsx` - Added `/search` route with `RequireRole(['client_admin', 'employee'])` guard
+- `src/components/layout/Layout.tsx` - Added Search nav link (client_admin + employee visible)
+
+## VQ-207: Answers with Citations
+**Backend Contract:** `POST /answers/ask` — question answering with hybrid retrieval, returns answer text, confidence, cited sources, spell-check info.
+
+**Frontend Components Created:**
+- `src/hooks/useAnswers.ts` - Hook with question state, ask execution, answer/loading/error state, clearAnswer
+- `src/pages/AnswersPage.tsx` at `/answers` - Question input, answer display with confidence meter, cited sources list (filename, chunk content, score), spell-check correction display, loading state
+- `src/routes/index.tsx` - Added `/answers` route with `RequireRole(['client_admin', 'employee'])` guard
+- `src/components/layout/Layout.tsx` - Added Answers nav link (client_admin + employee visible)
+
+### Role Enforcement
+- **Client Admin**: Full access to `/search` and `/answers`
+- **Employee**: Full access to `/search` and `/answers`
+- **Super Admin**: Blocked from both (access denied view + route guard)
+
+### Mock Support
+- `src/api/mock/handlers.ts` - Added `handleSearch`, `handleSuggest`, `handleAskQuestion` mock handlers with sample data
+- `src/api/real.ts` - Added `search`, `suggest`, `askQuestion` methods wired to real API modules
+- `src/components/Icons.tsx` - Added `MessageSquareIcon` for Answers nav
+
+---
+
+## Validation Results (Phase 6)
+
+| Check | Result |
+|---|---|
+| **TypeScript (`tsc --noEmit`)** | ✅ Passes (0 errors) |
+| **Production Build (`npm run build`)** | ✅ Passes (274 kB JS, 11 kB CSS) |
+| **Tests (`npm test -- --run`)** | ✅ Passes (1 test file, 1 test) |
 
 ---
 
@@ -263,12 +301,12 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ## Summary
 
-**Completed Phases:** 1-5 ✅
-**Remaining Phases:** 6-9 ⏳
+**Completed Phases:** 1-6 ✅
+**Remaining Phases:** 7-9 ⏳
 
 **All Validation Passing:**
 - ✅ TypeScript: 0 errors
-- ✅ Production Build: 260 kB JS, 11 kB CSS
+- ✅ Production Build: 274 kB JS, 11 kB CSS
 - ✅ Tests: 1 passed
 
 **Sprint 1/2 Regression Status:** ✅ All preserved (login, logout, documents, tenants, auth, routing)

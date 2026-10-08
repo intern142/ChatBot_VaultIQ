@@ -9,6 +9,12 @@ import type {
   TenantCreateResponse,
   TenantUpdateRequest,
   QuotaResponse,
+  SearchRequest,
+  SearchResponse,
+  SuggestRequest,
+  SuggestResponse,
+  AnswerRequest,
+  AnswerResponse,
 } from './types';
 
 class ApiError extends Error {
@@ -129,5 +135,28 @@ export const realApi = {
 
   async getTenantQuota(): Promise<QuotaResponse> {
     return request<QuotaResponse>('/tenants/quota');
+  },
+
+  // Search endpoints
+  async search(data: SearchRequest): Promise<SearchResponse> {
+    return request<SearchResponse>('/search', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async suggest(data: SuggestRequest): Promise<SuggestResponse> {
+    const params = new URLSearchParams();
+    params.set('q', data.query);
+    if (data.limit !== undefined) params.set('limit', String(data.limit));
+    return request<SuggestResponse>(`/search/suggest?${params.toString()}`);
+  },
+
+  // Answers endpoint
+  async askQuestion(data: AnswerRequest): Promise<AnswerResponse> {
+    return request<AnswerResponse>('/answers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };

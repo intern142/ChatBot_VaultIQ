@@ -9,6 +9,13 @@ import type {
   TenantUpdateRequest,
   QuotaResponse,
   AuthUser,
+  SearchRequest,
+  SearchResponse,
+  SuggestRequest,
+  SuggestResponse,
+  SearchResult,
+  AnswerRequest,
+  AnswerResponse,
 } from '../types';
 import { mockDb } from './db';
 
@@ -99,4 +106,139 @@ export async function handleGetTenantQuota(): Promise<QuotaResponse> {
   const tenants = mockDb.getTenants();
   const tenant = tenants.find(t => t.status === 'active') ?? tenants[0];
   return mockDb.getTenantQuota(tenant?.id ?? '') ?? { used_gb: 0, total_gb: 0 };
+}
+
+// Mock search data
+const mockSearchResults: SearchResult[] = [
+  {
+    document_id: 'doc-1',
+    chunk_index: 0,
+    content: 'The company policy states that all employees must complete annual security training by March 31st.',
+    score: 0.95,
+    original_filename: 'security_policy.pdf',
+  },
+  {
+    document_id: 'doc-2',
+    chunk_index: 1,
+    content: 'Annual leave policy: Employees are entitled to 25 days of paid leave per year, plus public holidays.',
+    score: 0.88,
+    original_filename: 'hr_policy.pdf',
+  },
+  {
+    document_id: 'doc-3',
+    chunk_index: 0,
+    content: 'SOP for incident reporting: All security incidents must be reported within 24 hours via the incident portal.',
+    score: 0.82,
+    original_filename: 'incident_sop.pdf',
+  },
+];
+
+export async function handleSearch(data: SearchRequest): Promise<SearchResponse> {
+  await run(() => {});
+  const query = data.query.toLowerCase();
+  const filtered = mockSearchResults.filter(r => 
+    r.content.toLowerCase().includes(query) || r.original_filename.toLowerCase().includes(query)
+  );
+  return {
+    results: filtered.slice(0, data.top_k ?? 10),
+    query: data.query,
+    total_results: filtered.length,
+  };
+}
+
+export async function handleSuggest(data: SuggestRequest): Promise<SuggestResponse> {
+  await run(() => {});
+  const query = data.query.toLowerCase();
+  const suggestions = [
+    'security policy',
+    'annual leave policy',
+    'incident reporting',
+    'password reset',
+    'data retention',
+  ].filter(s => s.toLowerCase().includes(query)).slice(0, data.limit ?? 5);
+  return { suggestions };
+}
+
+// Mock answers data
+export async function handleAskQuestion(data: AnswerRequest): Promise<AnswerResponse> {
+  await run(() => {});
+  const question = data.question.toLowerCase();
+  
+  if (question.includes('security') || question.includes('training')) {
+    return {
+      question: data.question,
+      answer_phrase: 'All employees must complete annual security training by March 31st.',
+      routing: 'answered',
+      confidence: 0.95,
+      sources: [
+        {
+          document_id: 'doc-1',
+          chunk_index: 0,
+          original_filename: 'security_policy.pdf',
+          score: 0.95,
+          excerpt: 'The company policy states that all employees must complete annual security training by March 31st.',
+        },
+      ],
+      followups: ['When is the deadline?', 'Where can I access the training?'],
+      spellcheck: { applied: false, original: '', corrected: '', corrections: [] },
+      source_document_id: 'doc-1',
+      source_chunk_index: 0,
+    };
+  }
+  
+  if (question.includes('leave') || question.includes('holiday') || question.includes('vacation')) {
+    return {
+      question: data.question,
+      answer_phrase: 'Employees are entitled to 25 days of paid leave per year, plus public holidays.',
+      routing: 'answered',
+      confidence: 0.92,
+      sources: [
+        {
+          document_id: 'doc-2',
+          chunk_index: 1,
+          original_filename: 'hr_policy.pdf',
+          score: 0.88,
+          excerpt: 'Annual leave policy: Employees are entitled to 25 days of paid leave per year, plus public holidays.',
+        },
+      ],
+      followups: ['How do I request leave?', 'Can I carry over unused leave?'],
+      spellcheck: { applied: false, original: '', corrected: '', corrections: [] },
+      source_document_id: 'doc-2',
+      source_chunk_index: 1,
+    };
+  }
+  
+  if (question.includes('incident') || question.includes('report') || question.includes('security incident')) {
+    return {
+      question: data.question,
+      answer_phrase: 'All security incidents must be reported within 24 hours via the incident portal.',
+      routing: 'answered',
+      confidence: 0.89,
+      sources: [
+        {
+          document_id: 'doc-3',
+          chunk_index: 0,
+          original_filename: 'incident_sop.pdf',
+          score: 0.82,
+          excerpt: 'SOP for incident reporting: All security incidents must be reported within 24 hours via the incident portal.',
+        },
+      ],
+      followups: ['What is the incident portal URL?', 'What details are required?'],
+      spellcheck: { applied: false, original: '', corrected: '', corrections: [] },
+      source_document_id: 'doc-3',
+      source_chunk_index: 0,
+    };
+  }
+  
+  return {
+    question: data.question,
+    answer_phrase: '',
+    routing: 'no_answer',
+    confidence: 0,
+    sources: [],
+    followups: ['Try asking about security training', 'Ask about leave policy', 'Ask about incident reporting'],
+    spellcheck: { applied: false, original: '', corrected: '', corrections: [] },
+    source_document_id: null,
+    source_chunk_index: null,
+  };
 }

@@ -9,6 +9,8 @@ import TenantsPage from '../pages/operator/TenantsPage';
 import AuditLogPage from '../pages/operator/AuditLogPage';
 import UserManagementPage from '../pages/UserManagementPage';
 import PasswordResetPage from '../pages/PasswordResetPage';
+import SearchPage from '../pages/SearchPage';
+import AnswersPage from '../pages/AnswersPage';
 import { AppShell } from '../components/layout/AppShell';
 
 function PrivateLayout() {
@@ -70,6 +72,22 @@ export default function AppRoutes() {
           element={
             <RequireRole allowedRoles={['client_admin']}>
               <UserManagementPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path={PATHS.search}
+          element={
+            <RequireRole allowedRoles={['client_admin', 'employee']}>
+              <SearchPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path={PATHS.answers}
+          element={
+            <RequireRole allowedRoles={['client_admin', 'employee']}>
+              <AnswersPage />
             </RequireRole>
           }
         />

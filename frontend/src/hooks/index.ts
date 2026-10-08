@@ -6,3 +6,5 @@ export { useUpload } from './useUpload';
 export { useDocumentApproval } from './useDocumentApproval';
 export { useDocumentProcessing } from './useDocumentProcessing';
 export { useUserManagement } from './useUsers';
+export { useSearch } from './useSearch';
+export { useAnswers } from './useAnswers';
