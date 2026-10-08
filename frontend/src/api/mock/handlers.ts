@@ -16,7 +16,12 @@ import type {
   SearchResult,
   AnswerRequest,
   AnswerResponse,
+  FeedbackCreate,
+  FeedbackUpdate,
+  FeedbackResponse,
+  FeedbackListResponse,
 } from '../types';
+import { ApiError } from '../errors';
 import { mockDb } from './db';
 
 const LATENCY_MS = import.meta.env.MODE === 'test' ? 0 : 180;
@@ -241,4 +246,108 @@ export async function handleAskQuestion(data: AnswerRequest): Promise<AnswerResp
     source_document_id: null,
     source_chunk_index: null,
   };
+}
+
+// Mock feedback (VQ-305)
+// Mirrors app/routes/feedback.py:
+//   - validation errors -> 422 (pydantic runs before the handler)
+//   - unknown answer on POST -> 404 "Answer not found"
+//   - duplicate POST -> 409 (one vote per user per answer)
+//   - PATCH/GET on missing feedback -> 404 "Feedback not found"
+// The mock models a single signed-in user, so one vote per answer id.
+const mockAnswerIds = new Set<string>();
+const mockFeedbackByAnswer = new Map<string, FeedbackResponse>();
+let mockFeedbackSeq = 0;
+
+export function registerMockAnswer(answerId: string): void {
+  mockAnswerIds.add(answerId);
+}
+
+export function resetMockFeedback(): void {
+  mockAnswerIds.clear();
+  mockFeedbackByAnswer.clear();
+  mockFeedbackSeq = 0;
+}
+
+function assertVote(vote: number): void {
+  if (vote !== 1 && vote !== -1) {
+    throw new ApiError('vote must be 1 (thumbs up) or -1 (thumbs down)', 422);
+  }
+}
+
+function assertComment(comment: string | null | undefined): void {
+  if (comment != null && comment.length > 500) {
+    throw new ApiError('Comment must be 500 characters or fewer', 422);
+  }
+}
+
+export async function handleGetFeedback(answerId: string): Promise<FeedbackResponse> {
+  await latency();
+  const existing = mockFeedbackByAnswer.get(answerId);
+  if (!existing) throw new ApiError('Feedback not found', 404);
+  return existing;
+}
+
+export async function handleCreateFeedback(
+  answerId: string,
+  body: FeedbackCreate,
+): Promise<FeedbackResponse> {
+  await latency();
+  assertVote(body.vote);
+  assertComment(body.comment);
+  if (!mockAnswerIds.has(answerId)) throw new ApiError('Answer not found', 404);
+  if (mockFeedbackByAnswer.has(answerId)) {
+    throw new ApiError(
+      'Feedback already exists for this answer from this user. Use PATCH to update.',
+      409,
+    );
+  }
+  const now = new Date().toISOString();
+  const feedback: FeedbackResponse = {
+    id: `mock-fb-${++mockFeedbackSeq}`,
+    answer_id: answerId,
+    user_id: 'mock-user',
+    vote: body.vote,
+    comment: body.comment ?? null,
+    created_at: now,
+    updated_at: now,
+  };
+  mockFeedbackByAnswer.set(answerId, feedback);
+  return feedback;
+}
+
+export async function handleUpdateFeedback(
+  answerId: string,
+  body: FeedbackUpdate,
+): Promise<FeedbackResponse> {
+  await latency();
+  if (body.vote !== undefined && body.vote !== null) assertVote(body.vote);
+  assertComment(body.comment);
+  const existing = mockFeedbackByAnswer.get(answerId);
+  if (!existing) throw new ApiError('Feedback not found', 404);
+  const updated: FeedbackResponse = {
+    ...existing,
+    vote: body.vote !== undefined && body.vote !== null ? body.vote : existing.vote,
+    comment: body.comment !== undefined ? body.comment : existing.comment,
+    updated_at: new Date().toISOString(),
+  };
+  mockFeedbackByAnswer.set(answerId, updated);
+  return updated;
+}
+
+export async function handleListFeedback(params?: {
+  page?: number;
+  page_size?: number;
+  answer_id?: string;
+  vote?: 1 | -1;
+}): Promise<FeedbackListResponse> {
+  await latency();
+  const page = params?.page ?? 1;
+  const pageSize = params?.page_size ?? 20;
+  let rows = Array.from(mockFeedbackByAnswer.values());
+  if (params?.answer_id) rows = rows.filter((f) => f.answer_id === params.answer_id);
+  if (params?.vote !== undefined) rows = rows.filter((f) => f.vote === params.vote);
+  const total = rows.length;
+  const start = (page - 1) * pageSize;
+  return { feedback: rows.slice(start, start + pageSize), total, page, page_size: pageSize };
 }

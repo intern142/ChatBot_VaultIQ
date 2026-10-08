@@ -287,7 +287,44 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ---
 
-# PHASE 7 — FEEDBACK (VQ-305) — **PENDING**
+# PHASE 7 — FEEDBACK (VQ-305) — **COMPLETED**
+
+## VQ-305: Feedback on Answers
+**Backend Contract (read from `app/routes/feedback.py`, `app/schemas/feedback.py`, verified against live `/openapi.json`):**
+- `POST /answers/{answer_id}/feedback` → 201 `FeedbackResponse` (roles: client_admin, employee); 404 unknown/foreign answer; 409 duplicate vote; 422 validation (vote ∈ {1,-1}, comment ≤ 500 chars)
+- `PATCH /answers/{answer_id}/feedback` → 200 (update existing vote); 404 if none exists
+- `GET /answers/{answer_id}/feedback` → 200 or 404 if none
+- `GET /answers/feedback` → client_admin only, paged + filters (answer_id, vote); 403 for employee
+- Live checks: no credentials → **403** (FastAPI `HTTPBearer` default, not our code); invalid token → **401**; super_admin → 403 (ROLE_MATRIX)
+
+**Frontend Components Created:**
+- `src/hooks/useFeedback.ts` — `useFeedback(answerId)` with existing/loading/submitting/error/success state, submit/edit/dismissError; 404-on-fetch → no existing feedback; 409-on-POST → retried as PATCH (vote change); 401 → "session expired", 403 → "no permission" messages; exports `FEEDBACK_ANSWER_ID_GAP`
+- `src/components/feedback/FeedbackPanel.tsx` — "Was this helpful?" 👍/👎 buttons, optional comment textarea with 500-char counter, loading spinner, success/error alerts with dismiss, "Update feedback" for existing votes; inline-style record pattern
+- `src/components/feedback/index.ts` — exports
+- `src/pages/AnswersPage.tsx` — renders `<FeedbackPanel answerId={null} />` below the answer
+
+### API & Mock Support
+- `src/api/feedback.ts` — all four functions now dispatch on `isMockMode()`: mock → dynamic `import('./mock/handlers')` (builds a separate 1.39 kB lazy chunk), real → unchanged `request()` endpoints
+- `src/api/mock/handlers.ts` — added `registerMockAnswer()`, `resetMockFeedback()`, and `handleGet/Create/Update/ListFeedback` implementing the exact backend semantics (422 → 404 → 409 ordering, filters, pagination)
+- `src/hooks/index.ts` — exports `useFeedback`
+
+### Decisions (deliberate, reviewer may push back)
+1. **Contract gap — `POST /answers` returns no `id` and persists no `answers` row** (`app/schemas/answer.py:39`, `app/services/answers.py` has no `db.add`), so no client can ever hold a real `answer_id` to post feedback against. `APPROACH_VQ305.md:60` planned "Return answer_id in response"; backend never implemented it. Chosen: wire the full UI/hook/API keyed on `answerId`, render the panel with `answerId={null}` which **degrades honestly** (explains feedback is unavailable until the contract provides an answer id — no fake success, no invented field). When the backend returns an id later, flipping the prop is the only change needed.
+2. **Feedback appears only in the Answers flow** — Search results contain no answer entity, so there is nothing to attach feedback to.
+3. **409 is treated as "vote changed"** — the backend's duplicate-vote rule means a second POST with a different vote is a vote change; the hook retries as PATCH. No other status is auto-retried.
+4. **Mock dispatch uses dynamic import of the handlers module**, keeping the real-mode bundle free of mock data.
+
+### Verification (Phase 7)
+| Check | Result |
+|---|---|
+| TypeScript (`tsc --noEmit`) | ✅ 0 errors |
+| Tests (mock mode, full suite) | ✅ 30 passed (10 feedback API + 13 useFeedback + 6 FeedbackPanel + 1 pre-existing) |
+| Production build | ✅ 279.76 kB JS (1.39 kB lazy mock chunk), 10.93 kB CSS |
+| Real API mode (one-off vitest, `VITE_API_MODE=real`, file deleted after run) | ✅ 12/12 passed: 403 no-credentials, 401 invalid-token + auth cleared, login, 201 create shape, 409 duplicate, PATCH, GET, 404 unknown, 404 cross-tenant (no existence leak), 422 comment>500, 403 employee→list |
+| Live contract spot-check (curl vs `/openapi.json`) | ✅ matches |
+
+- **Known code-read quirk (untested):** `GET /answers/{answer_id}/feedback` uses `scalar_one_or_none()` on a query that can return multiple rows for a client_admin → potential 500. Recorded only; no backend changes allowed.
+- **Verification seeds left in dev DB (port 5433, previously empty):** tenants `FEEDBK`/`FEEDBKB`, users `emp@feedbk.test`, `admin@feedbk.test`, `emp@feedbkb.test` (password `StrongPass1!`), answers `…f005`/`…f015`. Feedback rows deleted after the run. Kept for Phase 8 real-mode verification; will be cleaned up at the end of Phase 8.
 
 ---
 
@@ -301,13 +338,13 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ## Summary
 
-**Completed Phases:** 1-6 ✅
-**Remaining Phases:** 7-9 ⏳
+**Completed Phases:** 1-7 ✅
+**Remaining Phases:** 8-9 ⏳
 
 **All Validation Passing:**
 - ✅ TypeScript: 0 errors
-- ✅ Production Build: 274 kB JS, 11 kB CSS
-- ✅ Tests: 1 passed
+- ✅ Production Build: 279 kB JS, 11 kB CSS
+- ✅ Tests: 30 passed (mock); 12/12 passed (real-mode spot check, Phase 7)
 
 **Sprint 1/2 Regression Status:** ✅ All preserved (login, logout, documents, tenants, auth, routing)
 **Tenant Isolation:** ✅ Enforced by backend RLS + frontend route guards

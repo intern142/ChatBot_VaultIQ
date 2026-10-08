@@ -8,3 +8,4 @@ export { useDocumentProcessing } from './useDocumentProcessing';
 export { useUserManagement } from './useUsers';
 export { useSearch } from './useSearch';
 export { useAnswers } from './useAnswers';
+export { useFeedback } from './useFeedback';

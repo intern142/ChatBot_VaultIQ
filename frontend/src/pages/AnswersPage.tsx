@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { Alert } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FeedbackPanel } from '@/components/feedback';
 import type { AnswerResponse, AnswerSource } from '@/api/types';
 
 export default function AnswersPage() {
@@ -163,6 +164,12 @@ function AnswerCard({ answer, onClear }: AnswerCardProps) {
           <p style={styles.phraseText}>{answer.answer_phrase}</p>
         </div>
       )}
+
+      {/* answerId is null because POST /answers returns no answer id — the
+          backend never persists an Answer row for the live ask flow, so there
+          is nothing to attach feedback to. The panel degrades honestly and the
+          gap is documented in FRESH.md Phase 7. */}
+      <FeedbackPanel answerId={null} />
 
       {answer.sources && answer.sources.length > 0 && (
         <div style={styles.sourcesSection}>
