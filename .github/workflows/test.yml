@@ -73,6 +73,7 @@ jobs:
 
       - name: Run tests (as vaultiq_app, NOBYPASSRLS)
         env:
+          DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq

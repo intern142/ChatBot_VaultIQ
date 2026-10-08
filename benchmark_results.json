@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-10-07T11:07:54.710732+00:00",
+  "chunks_per_tenant": 5000,
+  "tenant_a": {
+    "tenant_id": "6597ec77-4f36-438d-bee4-fb82c1bde012",
+    "total_requests": 60,
+    "latency_ms": {
+      "p50": 287.27,
+      "p95": 565.53,
+      "p99": 625.35,
+      "mean": 329.88,
+      "min": 248.54,
+      "max": 625.35
+    },
+    "avg_results": 10
+  },
+  "tenant_b": {
+    "tenant_id": "6c290cd3-aefc-4eeb-83dc-a9989ddd809a",
+    "total_requests": 60,
+    "latency_ms": {
+      "p50": 292.71,
+      "p95": 580.98,
+      "p99": 683.07,
+      "mean": 332.21,
+      "min": 245.61,
+      "max": 683.07
+    },
+    "avg_results": 10
+  },
+  "isolation": {
+    "cross_tenant_leakage": false,
+    "tenant_a_results": 10,
+    "tenant_b_results": 10,
+    "shared_doc_ids": 0
+  }
+}

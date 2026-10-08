@@ -25,9 +25,11 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tenant: Mapped['Tenant'] = relationship('Tenant', back_populates='documents')
     uploader: Mapped['User'] = relationship('User', back_populates='documents')
+    chunks: Mapped[list['DocumentChunk']] = relationship('DocumentChunk', back_populates='document', cascade='all, delete-orphan')
 
     __table_args__ = (
         Index('ix_documents_tenant', 'tenant_id', 'created_at'),
