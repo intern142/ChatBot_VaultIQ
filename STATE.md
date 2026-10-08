@@ -30,20 +30,27 @@ Consequences (important, do not rediscover):
   the integration plan above; flag it in the approach note.
 
 **Next actions, in order:**
-1. ~~Commit AGENTS/STATE restructure~~ → done (on `vq-402` as `4f914ba`,
-   cherry-picked here as `f587e11`).
-2. ~~Gate 1: write `APPROACH_VQ403.md`~~ → **done, committed & pushed —
-   WAITING FOR USER'S "APPROVED".** No code before that. If changes are
-   requested: edit the note, re-commit, wait again. Key decisions in the note:
-   password step-up re-confirm; no purge endpoint (CLI-only, grace unbreakable);
-   SECURITY DEFINER purge fn validates grace internally; audit rows purged too
-   (report outside tenant is the survivor); `deletion_reports` platform table
-   (no RLS, no vaultiq_app grant); `007_offboarding` head-collision plan.
-3. VQ-402 leftovers (human-gated, do not block VQ-403): Gate 5 review on PR #16,
-   Gate 7 Friday demo. PR #16 and this branch will both touch `AGENTS.md`/
-   `STATE.md` — expect trivial conflicts at merge, resolve by keeping latest.
-4. Optional hardening offered but not done: `opencode.json` with `instructions`
-   to auto-load this file (currently loaded only via AGENTS.md header rule).
+1. ~~Gate 1: `APPROACH_VQ403.md`~~ → approved by user ("continue gate 2").
+2. ~~Gate 2: implementation~~ → done, commits on `vq-403`:
+   - `bae1a6a` migration 007 (grace columns, deletion_reports, purge_tenant fn) + models/schemas
+   - `e2c8d59` offboard/cancel endpoints + report read APIs + ROLE_MATRIX + manifest
+   - `a6bbce7` purge CLI + storage wipe helper
+   - `3f9c873` + `0652f49` tests (18 in `tests/test_offboarding.py`)
+3. ~~Gate 3: tests green~~ → full suite **155 passed** (324s) on fresh
+   `vaultiq_vq403` (migrations 001→007 + downgrade/upgrade roundtrip verified);
+   CLI smoke test green (`%TEMP%\opencode\vq403_purge_smoke.py`).
+4. ~~Gate 4: self-review~~ → `VQ403_SELF_REVIEW.md` written (all 5 ACs + both
+   must-proves walked).
+5. **Next: commit self-review + this state update, push, open PR → Gate 5
+   (human review) ⏳.**
+6. Gate 6: live container verify — rebuild, uvicorn, exercise offboard →
+   backdate → purge → report on live system, paste evidence on PR ⏳
+7. Gate 7: Friday demo ⏳
+8. VQ-402 leftovers (human-gated): Gate 5 review on PR #16, Gate 7 Friday demo.
+   PR #16 and this branch both touch `AGENTS.md`/`STATE.md` — trivial conflicts
+   at merge, resolve by keeping latest.
+9. Optional hardening offered but not done: `opencode.json` `instructions`
+   auto-loading this file.
 
 **Never do:**
 - Edit `AGENTS.md` (stable file — byte-identical for every model/branch).
@@ -53,10 +60,10 @@ Consequences (important, do not rediscover):
 - Touch the stash `VQ-208 Gate 6 WIP` unless returning to that story.
 
 **Environment facts:**
-- Test DB for current story: `vaultiq_vq402` (port 5433, vaultiq/vaultiq_secret);
-  run migrations/tests with `DATABASE_URL` + `DATABASE_URL_SYNC` pointed at it.
-  Shared `vaultiq` DB is off-limits (unknown revisions from other branches).
-  For VQ-403 fresh-DB runs consider a dedicated `vaultiq_vq403` (same pattern).
+- Test DB for current story: **`vaultiq_vq403`** (port 5433,
+  vaultiq/vaultiq_secret) — fresh DB, migrations 001→007 applied. Run tests with
+  `DATABASE_URL` + `DATABASE_URL_SYNC` pointed at it (+ `PYTHONPATH` = repo root).
+  Shared `vaultiq` DB is off-limits; `vaultiq_vq402` belongs to VQ-402's branch.
 - Live-verify pattern: `uvicorn app.main:app --host 127.0.0.1 --port 8000`
   with those env vars; scratch scripts go in `%TEMP%\opencode`, not the repo.
 - GH CLI authenticated as intern142; PR #16 = VQ-402.
@@ -106,7 +113,9 @@ Consequences (important, do not rediscover):
 ## Project State
 - Current branch: **`vq-403`** (cut from `main` @ `161eb6f` by user instruction;
   see Resume Here for VQ-402 integration plan)
-- Current task: **VQ-403** — Tenant offboarding and full purge (Gate 1 next)
+- Current task: **VQ-403** — Tenant offboarding and full purge
+  (Gates 1–4 ✅ · Gate 5 review + Gate 6 live verify + Gate 7 demo ⏳)
+- Test suite on `vq-403`: **155 passed** on DB `vaultiq_vq403` (this branch's suite)
 - Previous story: **VQ-402** — Audit/export/retention, PR #16 open (Gates 1-4, 6 ✅;
   Gate 5 review + Gate 7 demo pending), branch `vq-402`
 - Test suite on `vq-402`: **163 passed** (`python -m pytest tests/ -q`, 326s) on DB `vaultiq_vq402`
