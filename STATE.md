@@ -11,7 +11,7 @@
 ## 🚧 Resume Here — read this block first, update it before ending every session
 > Purpose: any model (big-pickle, nemotron, …) continues exactly where the last
 > session left. Contract: **update this block at every meaningful step**, not
-> only at session end. Last updated: 8 Oct 2026 (big-pickle).
+> only at session end. Last updated: 8 Oct 2026 13:50 UTC (big-pickle).
 
 **Current branch: `vq-403`** — cut from `main` @ `161eb6f` **by the user's
 explicit instruction** (I had proposed stacking from `vq-402`; user chose main).
@@ -50,12 +50,25 @@ Consequences (important, do not rediscover):
    doc upload on disk → role guard 403 → wrong-pw step-up 403 → offboard →
    sessions 0/login 403 → cancel + re-login → offboard → backdate → real CLI
    purge → report API → DB+disk identity sweep all zero, 1 platform survivor.
-7. Gate 5: code review (human, PR #17) ⏳ — the ONLY remaining blocker before Gate 7.
+7. **Gate 5: code review (human, PR #17) ⏳ — the ONLY remaining blocker before Gate 7.**
 8. VQ-402 leftovers (human-gated): Gate 5 review on PR #16, Gate 7 Friday demo.
    PR #16 and this branch both touch `AGENTS.md`/`STATE.md` — trivial conflicts
    at merge, resolve by keeping latest.
-9. Optional hardening offered but not done: `opencode.json` `instructions`
-   auto-loading this file.
+9. **CI fixes this session (8 Oct 2026):** All open PRs now have green checks:
+   - #17 vq-403 (CLEAN) ✅
+   - #16 vq-402 (CLEAN) ✅
+   - #15 vq-207 (CLEAN) ✅
+   - #10 vq-201 (DIRTY) ✅
+   - #11 vq-202 (DIRTY) ✅
+   - #14 vq-301 (DIRTY) ✅
+   - #13 vq-203 (DIRTY) ❌ — **Known Defect #2**: super-admin login 401 under `vaultiq_app`
+     (RLS policy lacks NULL-tenant branch). Needs real code fix (Gate 1+), not CI wiring.
+   - `main` workflow fixed (commit `ac22d54`).
+   Fixes applied: exported `DATABASE_URL` (CI PG on 5432 vs config default 5433),
+   added missing `pgvector==0.2.5`/`fastembed==0.8.1` on vq-207,
+   re-revoked `audit_logs` DELETE on vq-402, `tenants` DELETE on vq-202
+   after blanket grants (matching their migrations' REVOKE intent).
+10. Optional hardening not done: `opencode.json` `instructions` auto-loading this file.
 
 **Never do:**
 - Edit `AGENTS.md` (stable file — byte-identical for every model/branch).
@@ -133,6 +146,10 @@ Consequences (important, do not rediscover):
 - **Migration-head risk:** VQ-402 adds `007_audit_retention` (down_revision 006); the
   `vq-201-tenant-upload` branch also adds migrations descending from 006. Merging both
   creates two alembic heads — a merge migration will be needed at that point.
+- **CI status as of 8 Oct 2026 13:50 UTC:** All 6 PRs with CI checks pass (test=SUCCESS):
+  #17 vq-403 (CLEAN), #16 vq-402 (CLEAN), #15 vq-207 (CLEAN), #10 vq-201 (DIRTY),
+  #11 vq-202 (DIRTY), #14 vq-301 (DIRTY). #13 vq-203 (DIRTY) still FAILURE —
+  Known Defect #2 (super-admin login 401 under `vaultiq_app`); needs RLS policy fix.
 
 ## VQ-402 — Audit trail, compliance export, retention
 **Branch:** `vq-402` · **PR:** #16 · **Test DB:** `vaultiq_vq402` (port 5433) — dedicated DB,
