@@ -44,9 +44,13 @@ Consequences (important, do not rediscover):
 5. **~~Open PR~~ done → Gate 5 (human review) ⏳.** PR #17:
    https://github.com/intern142/ChatBot_VaultIQ/pull/17 (vq-403 → main).
    Post Gate 3/4 evidence there if asked.
-6. Gate 6: live container verify — rebuild, uvicorn, exercise offboard →
-   backdate → purge → report on live system, paste evidence on PR ⏳
-7. Gate 7: Friday demo ⏳
+6. ~~Gate 6: live container verify~~ → **done**, evidence posted on PR #17
+   (comment `#issuecomment-6058847994`): live uvicorn (PID 11728, stopped after)
+   against fresh `vaultiq_vq403`, 32 checks — full flow: create/invite/accept →
+   doc upload on disk → role guard 403 → wrong-pw step-up 403 → offboard →
+   sessions 0/login 403 → cancel + re-login → offboard → backdate → real CLI
+   purge → report API → DB+disk identity sweep all zero, 1 platform survivor.
+7. Gate 5: code review (human, PR #17) ⏳ — the ONLY remaining blocker before Gate 7.
 8. VQ-402 leftovers (human-gated): Gate 5 review on PR #16, Gate 7 Friday demo.
    PR #16 and this branch both touch `AGENTS.md`/`STATE.md` — trivial conflicts
    at merge, resolve by keeping latest.
@@ -115,8 +119,8 @@ Consequences (important, do not rediscover):
 - Current branch: **`vq-403`** (cut from `main` @ `161eb6f` by user instruction;
   see Resume Here for VQ-402 integration plan)
 - Current task: **VQ-403** — Tenant offboarding and full purge
-  (Gates 1–4 ✅ · PR #17 open: https://github.com/intern142/ChatBot_VaultIQ/pull/17
-  · Gate 5 review + Gate 6 live verify + Gate 7 demo ⏳)
+  (Gates 1–4, 6 ✅ · PR #17 open: https://github.com/intern142/ChatBot_VaultIQ/pull/17
+  · Gate 5 review + Gate 7 demo ⏳)
 - Test suite on `vq-403`: **155 passed** on DB `vaultiq_vq403` (this branch's suite)
 - Previous story: **VQ-402** — Audit/export/retention, PR #16 open (Gates 1-4, 6 ✅;
   Gate 5 review + Gate 7 demo pending), branch `vq-402`
