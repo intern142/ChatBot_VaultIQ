@@ -5,3 +5,4 @@ export { useAsync } from './useAsync';
 export { useUpload } from './useUpload';
 export { useDocumentApproval } from './useDocumentApproval';
 export { useDocumentProcessing } from './useDocumentProcessing';
+export { useUserManagement } from './useUsers';

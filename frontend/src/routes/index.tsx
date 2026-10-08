@@ -7,6 +7,8 @@ import DocumentsPage from '../pages/tenant/DocumentsPage';
 import StoragePage from '../pages/tenant/StoragePage';
 import TenantsPage from '../pages/operator/TenantsPage';
 import AuditLogPage from '../pages/operator/AuditLogPage';
+import UserManagementPage from '../pages/UserManagementPage';
+import PasswordResetPage from '../pages/PasswordResetPage';
 import { AppShell } from '../components/layout/AppShell';
 
 function PrivateLayout() {
@@ -21,6 +23,7 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path={PATHS.login} element={<LoginPage />} />
+      <Route path={PATHS.resetPassword} element={<PasswordResetPage />} />
       <Route element={<PrivateLayout />}>
         <Route
           path={PATHS.home}
@@ -59,6 +62,14 @@ export default function AppRoutes() {
           element={
             <RequireRole allowedRoles={['super_admin']}>
               <AuditLogPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path={PATHS.users}
+          element={
+            <RequireRole allowedRoles={['client_admin']}>
+              <UserManagementPage />
             </RequireRole>
           }
         />
