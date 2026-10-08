@@ -806,7 +806,7 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 - ✅ Gate 1: Approach note (`APPROACH_VQ208.md`) - posted and approved
 - ✅ Gate 2: Implementation - `tests/test_isolation_suite_v2.py` with 19 tests covering all 4 ACs
 - ✅ Gate 3: Tests green - 19/19 pass (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
-- ⏳ Gate 4: Self-review checklist
+- ✅ Gate 4: Self-review - `VQ208_SELF_REVIEW.md` written, all 4 ACs walked and confirmed
 - ⏳ Gate 5: Code review
 - ⏳ Gate 6: Live container verify
 - ⏳ Gate 7: Demo & sign-off Friday
