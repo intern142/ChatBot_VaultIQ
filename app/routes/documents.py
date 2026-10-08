@@ -20,6 +20,7 @@ from app.services.storage import (
     delete_document_file,
     get_document_file_path,
 )
+from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -93,6 +94,20 @@ async def upload_document(
         uploaded_by=current_user.id,
     )
     db.add(document)
+    await write_audit_log(
+        db=db,
+        tenant_id=uuid.UUID(tenant_id),
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="upload_document",
+        target_type="document",
+        target_id=document_id,
+        details={
+            "filename": file.filename,
+            "mime_type": document.mime_type,
+            "size_bytes": actual_size,
+        },
+    )
     await db.commit()
     await db.refresh(document)
 
@@ -260,7 +275,7 @@ async def delete_document(
     current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    _, tenant_id = current_user_tenant
+    current_user, tenant_id = current_user_tenant
 
     result = await db.execute(
         select(Document).where(
@@ -279,6 +294,21 @@ async def delete_document(
     # Delete file from disk
     delete_document_file(
         uuid.UUID(tenant_id), document_id, document.stored_filename
+    )
+
+    # Record the deletion on the trail before the row goes away
+    await write_audit_log(
+        db=db,
+        tenant_id=uuid.UUID(tenant_id),
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="delete_document",
+        target_type="document",
+        target_id=document_id,
+        details={
+            "filename": document.original_filename,
+            "size_bytes": document.size_bytes,
+        },
     )
 
     # Delete from database

@@ -23,6 +23,7 @@ class TenantCreate(BaseModel):
     short_code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=255)
     storage_quota_mb: Optional[int] = Field(None, ge=0)
+    retention_days: int = Field(365, ge=1, le=3650)
 
     @field_validator("short_code")
     @classmethod
@@ -43,6 +44,7 @@ class TenantResponse(BaseModel):
     name: str
     status: TenantStatus
     storage_quota_mb: Optional[int]
+    retention_days: int
     created_at: datetime
     updated_at: datetime
 
@@ -55,6 +57,7 @@ class TenantListResponse(BaseModel):
     name: str
     status: TenantStatus
     storage_quota_mb: Optional[int]
+    retention_days: int
     created_at: datetime
     updated_at: datetime
 

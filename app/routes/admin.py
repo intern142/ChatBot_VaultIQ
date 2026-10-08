@@ -3,7 +3,6 @@ import secrets
 import base64
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
-from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
@@ -29,6 +28,7 @@ from app.schemas.tenant import (
     AuditLogResponse,
 )
 from app.config import get_settings
+from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_roles("super_admin"))])
 settings = get_settings()
@@ -37,31 +37,6 @@ settings = get_settings()
 def generate_invite_code() -> str:
     """Generate a cryptographically secure invite code (32 bytes → 43 char base64url)."""
     return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
-
-
-async def write_audit_log(
-    db: AsyncSession,
-    tenant_id: UUID,
-    actor_user_id: Optional[UUID],
-    actor_role: str,
-    action: str,
-    target_type: str,
-    target_id: UUID,
-    details: dict[str, Any],
-) -> AuditLog:
-    """Write an audit log entry. Caller must set tenant context."""
-    audit = AuditLog(
-        tenant_id=tenant_id,
-        actor_user_id=actor_user_id,
-        actor_role=actor_role,
-        action=action,
-        target_type=target_type,
-        target_id=target_id,
-        details=details,
-    )
-    db.add(audit)
-    await db.flush()
-    return audit
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
@@ -75,6 +50,7 @@ async def create_tenant(
         short_code=request.short_code.upper(),
         name=request.name,
         storage_quota_mb=request.storage_quota_mb,
+        retention_days=request.retention_days,
         status=TenantStatus.active,
     )
     db.add(tenant)
@@ -102,6 +78,7 @@ async def create_tenant(
             "short_code": tenant.short_code,
             "name": tenant.name,
             "storage_quota_mb": tenant.storage_quota_mb,
+            "retention_days": tenant.retention_days,
         },
     )
 

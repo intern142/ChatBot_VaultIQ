@@ -29,6 +29,9 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+
+    # Audit trail export — client_admin of their own tenant (VQ-402)
+    ("GET", "/audit/export"),
 }
 
 

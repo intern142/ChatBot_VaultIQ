@@ -15,7 +15,7 @@ from tests.isolation_manifest import ISOLATION_COVERED_ROUTES, normalize_path
 
 def test_route_coverage_guard():
     """Every tenant-scoped route in the app must be listed in ISOLATION_COVERED_ROUTES."""
-    tenant_scoped_prefixes = ("/documents", "/admin", "/auth/refresh", "/auth/logout", "/invite/accept")
+    tenant_scoped_prefixes = ("/documents", "/admin", "/audit", "/auth/refresh", "/auth/logout", "/invite/accept")
     tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
@@ -384,6 +384,63 @@ class TestUploadEndpoint:
         assert resp.status_code == 201
         data = resp.json()
         assert data["tenant_id"] != other_tenant_id, "Upload created document in wrong tenant"
+
+
+class TestAuditExport:
+    """GET /audit/export (VQ-402) — tenant comes only from the token."""
+
+    @pytest.mark.asyncio
+    async def test_export_contains_only_own_tenant_rows(
+        self, async_client, db_conn, token_a_admin, tenant_a, tenant_b
+    ):
+        """Tenant A's export must never contain tenant B rows or identifiers."""
+        import json as _json
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO audit_logs (tenant_id, actor_role, action, target_type, target_id, details) "
+            "VALUES (%s, 'system', 'a_row', 'tenant', %s, %s)",
+            (str(tenant_a["id"]), str(tenant_a["id"]), _json.dumps({"mark": "a_marker"})),
+        )
+        cur.execute(
+            "INSERT INTO audit_logs (tenant_id, actor_role, action, target_type, target_id, details) "
+            "VALUES (%s, 'system', 'b_row', 'tenant', %s, %s) RETURNING id",
+            (str(tenant_b["id"]), str(tenant_b["id"]), _json.dumps({"mark": "b_secret_marker"})),
+        )
+        b_row_id = str(cur.fetchone()[0])
+        db_conn.commit()
+        cur.close()
+
+        resp = await make_request(async_client, "GET", "/audit/export", token_a_admin)
+        assert resp.status_code == 200, resp.text
+        assert "b_secret_marker" not in resp.text, "Export leaked tenant B content"
+        assert b_row_id not in resp.text, "Export leaked tenant B row id"
+        assert_no_cross_tenant_leak(resp, str(tenant_b["id"]))
+
+        import csv as _csv
+        import io as _io
+        rows = list(_csv.DictReader(_io.StringIO(resp.text)))
+        assert rows, "Expected tenant A's rows"
+        for row in rows:
+            assert row["tenant_id"] == str(tenant_a["id"])
+
+    @pytest.mark.asyncio
+    async def test_export_denied_for_employees(self, async_client, token_a_emp, token_b_emp):
+        """Employees cannot export the audit trail."""
+        for token in (token_a_emp, token_b_emp):
+            resp = await make_request(async_client, "GET", "/audit/export", token)
+            assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_export_denied_for_super_admin(self, async_client, super_admin_token):
+        """Super Admin has no tenant of their own to export via this path."""
+        resp = await make_request(async_client, "GET", "/audit/export", super_admin_token)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_export_requires_token(self, async_client):
+        resp = await async_client.get("/audit/export")
+        assert resp.status_code in (401, 403)
 
 
 # ---- Manifest completeness verification ----

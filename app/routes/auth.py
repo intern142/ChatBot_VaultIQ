@@ -14,6 +14,7 @@ from app.auth.jwt import create_access_token, decode_token
 from app.auth.dependencies import get_current_user
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, MessageResponse
 from app.schemas.tenant import TenantStatus
+from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -47,6 +48,7 @@ async def _reset_failed_logins(user: User, db: AsyncSession):
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     start = datetime.now(timezone.utc)
 
+    tenant: Tenant | None = None
     if request.organisation_code == "SUPER":
         result = await db.execute(
             select(User).where(
@@ -77,6 +79,20 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
             tenant = result.scalar_one_or_none()
             if tenant and tenant.status in (TenantStatus.suspended, TenantStatus.offboarding):
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "tenant_suspended",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
                 elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                 if elapsed < LOGIN_DELAY.total_seconds():
                     await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -87,6 +103,21 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         locked = await _check_lockout(user)
         if locked:
+            if user.tenant_id:
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "account_locked",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             if elapsed < LOGIN_DELAY.total_seconds():
                 await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -97,6 +128,21 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         if not verify_password(request.password, user.password_hash):
             await _record_failed_login(user, db)
+            if user.tenant_id:
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "wrong_password",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             if elapsed < LOGIN_DELAY.total_seconds():
                 await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -108,6 +154,25 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         await _reset_failed_logins(user, db)
 
     else:
+        # Known organisation code but no such user: attribute the failure to
+        # that tenant (internal, tenant-scoped trail — response stays uniform).
+        # An unresolvable organisation code (or SUPER) has no tenant to
+        # attribute to and is not recorded — see APPROACH_VQ402.md.
+        if tenant is not None:
+            await write_audit_log(
+                db=db,
+                tenant_id=tenant.id,
+                actor_user_id=None,
+                actor_role="unauthenticated",
+                action="failed_login",
+                target_type="tenant",
+                target_id=tenant.id,
+                details={
+                    "reason": "unknown_email",
+                    "organisation_code": request.organisation_code,
+                },
+            )
+            await db.commit()
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         if elapsed < LOGIN_DELAY.total_seconds():
             await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -126,6 +191,19 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     db.add(session)
     await db.commit()
     await db.refresh(session)
+
+    if user.tenant_id:
+        await write_audit_log(
+            db=db,
+            tenant_id=user.tenant_id,
+            actor_user_id=user.id,
+            actor_role=user.role,
+            action="login",
+            target_type="user",
+            target_id=user.id,
+            details={"organisation_code": request.organisation_code},
+        )
+        await db.commit()
 
     token = create_access_token(
         user_id=user.id,
@@ -206,5 +284,18 @@ async def logout(
         session.is_revoked = True
         session.revoked_at = datetime.now(timezone.utc)
         await db.commit()
+
+        if session.tenant_id:
+            await write_audit_log(
+                db=db,
+                tenant_id=session.tenant_id,
+                actor_user_id=session.user_id,
+                actor_role=payload.get("role", "unknown"),
+                action="logout",
+                target_type="session",
+                target_id=session.id,
+                details={},
+            )
+            await db.commit()
 
     return MessageResponse(detail="Logged out")
