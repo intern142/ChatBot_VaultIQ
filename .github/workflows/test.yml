@@ -1,19 +1,21 @@
 name: Tests
 
 on:
-  push:
-    branches:
-      - vq-105-tenant-login
-      - vq-103-tenant-middleware
-      - vq-104-storage-namespace
-      - vq-102-rls
-      - vq-106-permissions
-      - vq-107-tenant-lifecycle
-      - vq-110-isolation-suite-v1
-      - vq-201-tenant-upload
-      - vq-202-approval-versioning
-      - vq-203
-      - vq-301-password-reset
+    push:
+      branches:
+        - vq-105-tenant-login
+        - vq-103-tenant-middleware
+        - vq-104-storage-namespace
+        - vq-102-rls
+        - vq-106-permissions
+        - vq-107-tenant-lifecycle
+        - vq-110-isolation-suite-v1
+        - vq-201-tenant-upload
+        - vq-202-approval-versioning
+        - vq-203
+        - vq-301-password-reset
+        - vq-402
+        - vq-403
   pull_request:
     branches: [main]
 
@@ -73,6 +75,7 @@ jobs:
 
       - name: Run tests (as vaultiq_app, NOBYPASSRLS)
         env:
+          DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           ADMIN_DATABASE_URL: postgresql+asyncpg://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
