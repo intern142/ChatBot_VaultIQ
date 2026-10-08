@@ -108,11 +108,12 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: **`vq-208`** (working: VQ-208 isolation suite v2 — Gate 1 approach note posted)
-- Current task: **VQ-208** — Cross-tenant isolation test suite v2 (search level) (Gate 1 posted, PR pending)
+- Current branch: **`vq-208`** (working: VQ-208 isolation suite v2 — Gates 1-3 complete)
+- Current task: **VQ-208** — Cross-tenant isolation test suite v2 (search level) (Gates 1-3 ✅, Gate 4 next)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 - Merged into `vq-208`: VQ-203, VQ-205, VQ-210 (dependencies for VQ-208)
+- VQ-208 test suite: **19 tests passing** (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -801,7 +802,23 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 - The suite's run output against the live container
 - A demonstration: weaken the tenant restriction on a throwaway branch and show the suite catching it
 
-**Gates:** All 7 gates pending
+**Gates:** 
+- ✅ Gate 1: Approach note (`APPROACH_VQ208.md`) - posted and approved
+- ✅ Gate 2: Implementation - `tests/test_isolation_suite_v2.py` with 19 tests covering all 4 ACs
+- ✅ Gate 3: Tests green - 19/19 pass (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
+- ⏳ Gate 4: Self-review checklist
+- ⏳ Gate 5: Code review
+- ⏳ Gate 6: Live container verify
+- ⏳ Gate 7: Demo & sign-off Friday
+
+**Test Coverage Summary:**
+- **Search Isolation (AC1):** 6 tests - `test_search_returns_only_tenant_content` (4 roles × 2 tenants), `test_search_returns_empty_for_no_match`, `test_search_suggest_is_tenant_isolated` (4 roles)
+- **Cache Isolation (AC2):** 3 tests - `test_tenant_a_cache_not_accessible_by_tenant_b`, `test_cache_isolation_by_role_within_same_tenant`, `test_direct_cache_service_isolation`
+- **Processing Isolation (AC3):** 2 tests - `test_concurrent_processing_does_not_leak`, `test_processing_jobs_are_tenant_isolated`
+- **Regression Integration (AC4):** 3 tests - manifest coverage, health check, app identity verification
+- **Coverage Guards:** 2 tests - `test_route_coverage_guard`, `test_manifest_covers_all_vq208_routes`
+
+**Dependencies Merged:** VQ-203, VQ-205, VQ-210 merged into `vq-208` branch
 
 ---
 

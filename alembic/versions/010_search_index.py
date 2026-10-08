@@ -22,6 +22,10 @@ def upgrade() -> None:
     # Enable pgvector extension
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
+    # Drop existing document_chunks if created by VQ-203 migration (160ccbed24a5)
+    # so we can recreate with partitioning and content_tsv
+    op.execute("DROP TABLE IF EXISTS document_chunks")
+
     # Create parent partitioned table
     op.execute("""
         CREATE TABLE document_chunks (
@@ -41,6 +45,43 @@ def upgrade() -> None:
     op.execute("CREATE INDEX ON document_chunks USING GIN (content_tsv)")
     op.execute("CREATE INDEX ON document_chunks USING hnsw (embedding vector_cosine_ops)")
     op.execute("CREATE INDEX ON document_chunks (tenant_id, document_id)")
+
+    # Auto-create partition for new tenant on INSERT into tenants
+    op.execute("""
+        CREATE OR REPLACE FUNCTION create_document_chunks_partition()
+        RETURNS trigger AS $$
+        BEGIN
+            EXECUTE format(
+                'CREATE TABLE IF NOT EXISTS document_chunks_%s PARTITION OF document_chunks FOR VALUES IN (%L)',
+                replace(NEW.id::text, '-', '_'),
+                NEW.id
+            );
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql SECURITY DEFINER;
+    """)
+    op.execute("""
+        DROP TRIGGER IF EXISTS tenants_create_partition ON tenants;
+        CREATE TRIGGER tenants_create_partition
+        AFTER INSERT ON tenants
+        FOR EACH ROW EXECUTE FUNCTION create_document_chunks_partition();
+    """)
+
+    # Create partitions for existing tenants
+    op.execute("""
+        DO $$
+        DECLARE
+            t record;
+        BEGIN
+            FOR t IN SELECT id FROM tenants LOOP
+                EXECUTE format(
+                    'CREATE TABLE IF NOT EXISTS document_chunks_%s PARTITION OF document_chunks FOR VALUES IN (%L)',
+                    replace(t.id::text, '-', '_'),
+                    t.id
+                );
+            END LOOP;
+        END $$;
+    """)
 
     # Add indexed_at to documents
     op.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS indexed_at timestamptz")
@@ -90,6 +131,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS tenants_create_partition ON tenants")
+    op.execute("DROP FUNCTION IF EXISTS create_document_chunks_partition()")
     op.execute("DROP TABLE IF EXISTS indexing_jobs")
     op.execute("DROP TABLE IF EXISTS document_chunks")
     op.execute("ALTER TABLE documents DROP COLUMN IF EXISTS indexed_at")
