@@ -12,10 +12,10 @@ on:
       - vq-110-isolation-suite-v1
       - vq-201-tenant-upload
       - vq-202-approval-versioning
-        - vq-203
-        - vq-301-password-reset
-        - vq-402
-        - vq-403
+      - vq-203
+      - vq-301-password-reset
+      - vq-402
+      - vq-403
   pull_request:
     branches: [main]
 
