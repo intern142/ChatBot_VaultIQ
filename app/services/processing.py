@@ -254,6 +254,8 @@ async def store_chunks(
     )
 
     for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        # Format embedding for pgvector: comma-separated, no newlines
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
         await db.execute(
             text("""
                 INSERT INTO document_chunks
@@ -265,7 +267,7 @@ async def store_chunks(
                 "document_id": document_id,
                 "chunk_index": idx,
                 "content": chunk,
-                "embedding": str(embedding),
+                "embedding": embedding_str,
             },
         )
 
