@@ -108,10 +108,45 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: main (VQ-110 merged)
-- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
+- Current branch: **`vq-402`** (cut from `main` @ `161eb6f`)
+- Current task: **VQ-402** — Audit trail, compliance export, retention (PR #16 open)
+- Test suite on `vq-402`: **163 passed** (`python -m pytest tests/ -q`, 326s) on DB `vaultiq_vq402`
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
+- VQ-201 work is stashed: `git stash list` → `VQ-208 Gate 6 WIP` (restore when returning)
+
+## VQ-402 — Audit trail, compliance export, retention (current)
+**Branch:** `vq-402` · **PR:** #16 · **Test DB:** `vaultiq_vq402` (port 5433) — dedicated DB,
+migrations 001→007, shared `vaultiq` DB left untouched.
+
+**Gates:** 1 ✅ (`APPROACH_VQ402.md`) · 2 ✅ · 3 ✅ (163 passed) · 4 ✅ (`VQ402_SELF_REVIEW.md`) ·
+5 ⏳ (PR #16) · 6 ✅ (evidence in PR comment) · 7 ⏳ (Friday demo)
+
+**Gate 6 evidence (PR #16 comment):**
+- 10 actions on live uvicorn → export contains all 10 + `export_audit`
+- `vaultiq_app` direct connection: UPDATE/DELETE denied (`42501`), RLS 0 rows without
+  context / 12 with; INSERT allowed (by design); owner (`vaultiq`) path only for retention
+- `python -m app.retention` iterates POLA/POLB/VQ402LIVE, each with own `days=365`
+
+**What exists:**
+- `app/services/audit.py` — single fail-closed writer; wired into login, logout, failed_login
+  (4 reasons), create_invite, accept_invite, upload_document, delete_document, create_tenant
+  (retention_days in details), suspend_tenant, reactivate_tenant, export_audit
+- Reserved action names (features not on `main` yet, see `APPROACH_VQ402.md`): `role_change`
+  (VQ-301), approve/reject (VQ-204), question+docs+confidence (VQ-210), `settings_change`
+- Migration `007_audit_retention.py` — `tenants.retention_days` (CHECK >=1),
+  REVOKE UPDATE/DELETE on `audit_logs` from `vaultiq_app` + `vaultiq_super_admin`,
+  SECURITY DEFINER `vaultiq_purge_tenant_retention(tenant)` (EXECUTE revoked from PUBLIC),
+  index `ix_audit_logs_tenant_created`; downgrade → upgrade roundtrip verified
+- `GET /audit/export` — client_admin only, tenant from token, date range, csv/json,
+  self-records (`export_audit`) before reading rows
+- `app/retention.py` — `python -m app.retention` CLI, per-tenant purge; cron `0 3 * * *`
+  documented (no scheduler infra in repo)
+- Guards updated: manifest + coverage guard cover `/audit/export`; `PERMISSIONS.md` row 5
+- Tests: `tests/test_audit_retention.py` (22) + 4 isolation-suite export tests = +26
+
+**Caveat:** live uvicorn ran as `vaultiq` superuser (Known Defect #1); RLS/immutability
+proven via separate direct `vaultiq_app` connections (Known Defects #1/#2 out of scope).
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
