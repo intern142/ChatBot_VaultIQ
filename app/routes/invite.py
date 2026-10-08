@@ -18,8 +18,8 @@ from app.auth.password import hash_password, validate_password_strength
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.invite import Invite
-from app.models.audit_log import AuditLog
 from app.schemas.tenant import InviteAcceptRequest, InviteAcceptResponse, TenantStatus
+from app.services.audit import write_audit_log
 
 router = APIRouter(tags=["invite"])
 
@@ -95,7 +95,8 @@ async def accept_invite(
     invite.used_at = datetime.now(timezone.utc)
     await db.flush()
 
-    audit = AuditLog(
+    await write_audit_log(
+        db=db,
         tenant_id=invite.tenant_id,
         actor_user_id=None,
         actor_role="system",
@@ -104,7 +105,6 @@ async def accept_invite(
         target_id=user.id,
         details={"email": user.email, "invite_id": str(invite.id)},
     )
-    db.add(audit)
 
     await db.commit()
     await db.refresh(user)
