@@ -13,15 +13,35 @@
 > session left. Contract: **update this block at every meaningful step**, not
 > only at session end. Last updated: 8 Oct 2026 (big-pickle).
 
+**Current branch: `vq-403`** — cut from `main` @ `161eb6f` **by the user's
+explicit instruction** (I had proposed stacking from `vq-402`; user chose main).
+Consequences (important, do not rediscover):
+- **VQ-402's code is NOT on this branch**: no `app/services/audit.py`, no
+  migration `007_audit_retention`, no `/audit/export`, no `app/retention.py`.
+  Offboarding audit must use the audit helper as it exists on `main`
+  (local to `app/routes/admin.py`, writes to `audit_logs` which DOES exist).
+  When PR #16 merges, rebase and switch to `services/audit.py`.
+- **Migration-head collision planned for:** this branch will add its own
+  `007_*` (down_revision `006`) → conflicts with VQ-402's `007_audit_retention`
+  at integration. Fix at rebase time: re-parent onto VQ-402's 007 if merged
+  first, otherwise add a merge migration (see pattern
+  `a1340d9f596a_merge_...`).
+- Ticket dependency "Depends on: VQ-107 ✅, VQ-402 ⏳" — VQ-402 side handled by
+  the integration plan above; flag it in the approach note.
+
 **Next actions, in order:**
-1. ~~Commit the AGENTS/STATE restructure on `vq-402`~~ → done (this commit).
-2. **Confirm with user, then start VQ-403:**
-   - Branch plan proposed: cut `vq-403` **from `vq-402`** (stacked PR; rebase if
-     PR #16 gets review changes). Awaiting user OK.
-   - Gate 1: write `APPROACH_VQ403.md` → post for approval → **STOP. No code
-     before the user says "approved".**
+1. ~~Commit AGENTS/STATE restructure~~ → done (on `vq-402` as `4f914ba`,
+   cherry-picked here as `f587e11`).
+2. ~~Gate 1: write `APPROACH_VQ403.md`~~ → **done, committed & pushed —
+   WAITING FOR USER'S "APPROVED".** No code before that. If changes are
+   requested: edit the note, re-commit, wait again. Key decisions in the note:
+   password step-up re-confirm; no purge endpoint (CLI-only, grace unbreakable);
+   SECURITY DEFINER purge fn validates grace internally; audit rows purged too
+   (report outside tenant is the survivor); `deletion_reports` platform table
+   (no RLS, no vaultiq_app grant); `007_offboarding` head-collision plan.
 3. VQ-402 leftovers (human-gated, do not block VQ-403): Gate 5 review on PR #16,
-   Gate 7 Friday demo.
+   Gate 7 Friday demo. PR #16 and this branch will both touch `AGENTS.md`/
+   `STATE.md` — expect trivial conflicts at merge, resolve by keeping latest.
 4. Optional hardening offered but not done: `opencode.json` with `instructions`
    to auto-load this file (currently loaded only via AGENTS.md header rule).
 
@@ -36,13 +56,14 @@
 - Test DB for current story: `vaultiq_vq402` (port 5433, vaultiq/vaultiq_secret);
   run migrations/tests with `DATABASE_URL` + `DATABASE_URL_SYNC` pointed at it.
   Shared `vaultiq` DB is off-limits (unknown revisions from other branches).
+  For VQ-403 fresh-DB runs consider a dedicated `vaultiq_vq403` (same pattern).
 - Live-verify pattern: `uvicorn app.main:app --host 127.0.0.1 --port 8000`
   with those env vars; scratch scripts go in `%TEMP%\opencode`, not the repo.
 - GH CLI authenticated as intern142; PR #16 = VQ-402.
 
 ---
 
-## VQ-403 — Tenant offboarding and full purge (next story, spec already read)
+## VQ-403 — Tenant offboarding and full purge (current story, spec already read)
 > Source: `C:\Users\Test user 1\Documents\vq403.txt` (copied here so resume
 > doesn't depend on the external file). Track BE · P0 · 5pt · 8–9 Oct 2026.
 > **Depends on: VQ-107 ✅, VQ-402 ⏳ (PR #16).**
@@ -83,10 +104,11 @@
 ---
 
 ## Project State
-- Current branch: **`vq-402`** (cut from `main` @ `161eb6f`)
-- Current task: **VQ-402** — Audit trail, compliance export, retention (PR #16 open)
-- Next task: **VQ-403** — Tenant offboarding and full purge (depends VQ-107 ✅, VQ-402 ⏳;
-  branch from `vq-402` or after PR #16 merges)
+- Current branch: **`vq-403`** (cut from `main` @ `161eb6f` by user instruction;
+  see Resume Here for VQ-402 integration plan)
+- Current task: **VQ-403** — Tenant offboarding and full purge (Gate 1 next)
+- Previous story: **VQ-402** — Audit/export/retention, PR #16 open (Gates 1-4, 6 ✅;
+  Gate 5 review + Gate 7 demo pending), branch `vq-402`
 - Test suite on `vq-402`: **163 passed** (`python -m pytest tests/ -q`, 326s) on DB `vaultiq_vq402`
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s) — as of `19ea79f` (VQ-110 merged)
 - Test suite on `vq-201-tenant-upload` (PR #10, not merged): 163 tests (upload/OCR/quota)
