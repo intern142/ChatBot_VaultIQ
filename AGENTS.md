@@ -108,12 +108,12 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: **`vq-208`** (working: VQ-208 isolation suite v2 — Gates 1-3 complete)
-- Current task: **VQ-208** — Cross-tenant isolation test suite v2 (search level) (Gates 1-3 ✅, Gate 4 next)
+- Current branch: **`vq-208`** (working: VQ-208 isolation suite v2 — Gates 1-4 complete, Gate 6 in progress)
+- Current task: **VQ-208** — Cross-tenant isolation test suite v2 (search level) (Gates 1-4 ✅, Gate 6 in progress)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
 - Merged into `vq-208`: VQ-203, VQ-205, VQ-210 (dependencies for VQ-208)
-- VQ-208 test suite: **19 tests passing** (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
+- VQ-208 test suite: **19 tests passing in-process** (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -805,10 +805,10 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 **Gates:** 
 - ✅ Gate 1: Approach note (`APPROACH_VQ208.md`) - posted and approved
 - ✅ Gate 2: Implementation - `tests/test_isolation_suite_v2.py` with 19 tests covering all 4 ACs
-- ✅ Gate 3: Tests green - 19/19 pass (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
+- ✅ Gate 3: Tests green - 19/19 pass in-process (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
 - ✅ Gate 4: Self-review - `VQ208_SELF_REVIEW.md` written, all 4 ACs walked and confirmed
-- ⏳ Gate 5: Code review
-- ⏳ Gate 6: Live container verify
+- 🔄 Gate 5: Code review (PR pending)
+- 🔄 Gate 6: Live container verify — **in progress**: test suite passes in-process (19/19 ✅); live container run against uvicorn+Docker PG has session/transaction visibility issues between vaultiq (superuser, uvicorn default) and vaultiq_app (test session factory). Need to align uvicorn to use vaultiq_app or fix test session management.
 - ⏳ Gate 7: Demo & sign-off Friday
 
 **Test Coverage Summary:**
