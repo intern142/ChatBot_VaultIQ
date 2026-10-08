@@ -87,6 +87,13 @@ def upgrade() -> None:
         CONSTRAINT chk_tenants_retention_days CHECK (retention_days >= 1)
     """)
 
+    # Export (tenant + date range) and the nightly purge both scan by
+    # tenant_id + created_at — same pattern as ix_documents_tenant.
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_tenant_created "
+        "ON audit_logs (tenant_id, created_at)"
+    )
+
     # --- AC2: the application identity can never edit or delete audit rows ---
     # Grants on audit_logs were already SELECT, INSERT only (migration 004);
     # the explicit REVOKE locks the intent against any future GRANT ALL.
@@ -101,6 +108,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS ix_audit_logs_tenant_created")
+
     op.execute("REVOKE EXECUTE ON FUNCTION vaultiq_purge_tenant_retention(uuid) FROM vaultiq_app")
     op.execute("DROP FUNCTION IF EXISTS vaultiq_purge_tenant_retention(uuid)")
 
