@@ -808,7 +808,7 @@ All latency metrics within 5% of baseline (actually improved). Cross-tenant isol
 - ✅ Gate 3: Tests green - 19/19 pass in-process (search isolation 6, cache isolation 3, processing isolation 2, regression 3, coverage guards 2, manifest 1)
 - ✅ Gate 4: Self-review - `VQ208_SELF_REVIEW.md` written, all 4 ACs walked and confirmed
 - 🔄 Gate 5: Code review (PR pending)
-- 🔄 Gate 6: Live container verify — **in progress**: test suite passes in-process (19/19 ✅); live container run against uvicorn+Docker PG has session/transaction visibility issues between vaultiq (superuser, uvicorn default) and vaultiq_app (test session factory). Need to align uvicorn to use vaultiq_app or fix test session management.
+- 🔄 Gate 6: Live container verify — **in progress**: in-process suite 19/19 ✅; live container run has job creation issue in uvicorn server (document_jobs not created due to RLS/transaction isolation with vaultiq_app). Root cause: uvicorn's document upload endpoint creates document but job insert not visible due to RLS/transaction isolation. Fix needed in uvicorn config or worker integration.
 - ⏳ Gate 7: Demo & sign-off Friday
 
 **Test Coverage Summary:**
