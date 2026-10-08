@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db, set_tenant_context
 from app.auth.dependencies import get_current_user
+from app.auth.password import verify_password
 from app.auth.permissions import require_roles
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -20,18 +21,24 @@ from app.schemas.tenant import TenantStatus
 from app.models.session import Session
 from app.models.invite import Invite
 from app.models.audit_log import AuditLog
+from app.models.deletion_report import DeletionReport
 from app.schemas.tenant import (
     TenantCreate,
     TenantResponse,
     TenantListResponse,
+    TenantOffboardRequest,
     InviteCreate,
     InviteResponse,
     AuditLogResponse,
+    DeletionReportResponse,
 )
 from app.config import get_settings
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_roles("super_admin"))])
 settings = get_settings()
+
+# VQ-403: fixed grace period between offboard and purge (no config column)
+OFFBOARD_GRACE_DAYS = 7
 
 
 def generate_invite_code() -> str:
@@ -207,6 +214,111 @@ async def reactivate_tenant(
     return tenant
 
 
+@router.patch("/tenants/{tenant_id}/offboard", response_model=TenantResponse)
+async def offboard_tenant(
+    tenant_id: UUID,
+    request: TenantOffboardRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-403: Offboard a tenant after re-confirming the super admin's identity.
+
+    Locks the tenant immediately (login and the request dependency already
+    refuse offboarding tenants), revokes all its sessions, and starts the
+    7-day grace window (purge_after).
+    """
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    if tenant.status == TenantStatus.purged:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tenant is already purged")
+
+    if tenant.status == TenantStatus.offboarding:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tenant is already offboarding")
+
+    # Step-up: re-confirm the acting super admin's own identity (no MFA exists)
+    if not verify_password(request.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Identity re-confirmation failed",
+        )
+
+    # Set tenant context so session revocation and audit entry pass RLS
+    await set_tenant_context(db, str(tenant_id))
+
+    # Revoke all sessions for this tenant — lock takes effect immediately
+    await db.execute(
+        delete(Session).where(Session.tenant_id == tenant_id)
+    )
+
+    now = datetime.now(timezone.utc)
+    tenant.status = TenantStatus.offboarding
+    tenant.offboarded_at = now
+    tenant.offboarded_by = current_user.id
+    tenant.purge_after = now + timedelta(days=OFFBOARD_GRACE_DAYS)
+    await db.flush()
+
+    await write_audit_log(
+        db=db,
+        tenant_id=tenant.id,
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="offboard_tenant",
+        target_type="tenant",
+        target_id=tenant.id,
+        details={"purge_after": tenant.purge_after.isoformat()},
+    )
+
+    await db.commit()
+    await db.refresh(tenant)
+    return tenant
+
+
+@router.patch("/tenants/{tenant_id}/cancel-offboarding", response_model=TenantResponse)
+async def cancel_offboarding(
+    tenant_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-403: Cancel an offboarding within the grace period."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    if tenant.status != TenantStatus.offboarding:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tenant is not offboarding")
+
+    # Set tenant context so the audit entry passes RLS
+    await set_tenant_context(db, str(tenant_id))
+
+    tenant.status = TenantStatus.active
+    tenant.offboarded_at = None
+    tenant.offboarded_by = None
+    tenant.purge_after = None
+    tenant.purged_at = None
+    await db.flush()
+
+    await write_audit_log(
+        db=db,
+        tenant_id=tenant.id,
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="cancel_offboarding",
+        target_type="tenant",
+        target_id=tenant.id,
+        details={},
+    )
+
+    await db.commit()
+    await db.refresh(tenant)
+    return tenant
+
+
 @router.post("/tenants/{tenant_id}/invite", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
 async def create_invite(
     tenant_id: UUID,
@@ -306,3 +418,29 @@ async def get_audit_log(
     )
     logs = result.scalars().all()
     return logs
+
+
+@router.get("/deletion-reports", response_model=list[DeletionReportResponse])
+async def list_deletion_reports(
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-403: List deletion reports (platform-level, stored outside tenants)."""
+    result = await db.execute(
+        select(DeletionReport).order_by(DeletionReport.created_at.desc()).limit(200)
+    )
+    return result.scalars().all()
+
+
+@router.get("/deletion-reports/{report_id}", response_model=DeletionReportResponse)
+async def get_deletion_report(
+    report_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-403: Fetch a single deletion report."""
+    result = await db.execute(select(DeletionReport).where(DeletionReport.id == report_id))
+    report = result.scalar_one_or_none()
+
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deletion report not found")
+
+    return report
