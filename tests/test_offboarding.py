@@ -509,3 +509,89 @@ class TestPurge:
             headers={"Authorization": f"Bearer {super_admin_token}"},
         )
         assert resp.status_code == 404
+
+    async def test_guarded_derived_tables_purged_skipped_when_unsafe(
+        self, tenant_a, db_engine
+    ):
+        """AC3 derived artefacts: listed tables WITH tenant_id are purged and
+        counted; listed tables WITHOUT tenant_id are skipped without error
+        (future-proofing against derived tables that aren't tenant-scoped)."""
+        tid = tenant_a["id"]
+        async with db_engine.begin() as conn:
+            # exists + has tenant_id -> must be purged
+            await conn.execute(text(
+                """
+                CREATE TABLE text_chunks (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id uuid REFERENCES tenants(id),
+                    content text
+                )
+                """
+            ))
+            await conn.execute(
+                text(
+                    "INSERT INTO text_chunks (tenant_id, content) VALUES (:t, 'secret')"
+                ),
+                {"t": tid},
+            )
+            # exists, listed, but NO tenant_id -> must be skipped, not error
+            await conn.execute(text(
+                """
+                CREATE TABLE cached_answers (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    answer text
+                )
+                """
+            ))
+            await conn.execute(text(
+                "INSERT INTO cached_answers (answer) VALUES ('keep me')"
+            ))
+            await conn.execute(
+                text(
+                    """
+                    UPDATE tenants
+                    SET status = 'offboarding', offboarded_at = now() - interval '8 days',
+                        purge_after = now() - interval '1 day'
+                    WHERE id = :t
+                    """
+                ),
+                {"t": tid},
+            )
+
+        try:
+            purged = await purge_due_tenants()
+            assert len(purged) == 1
+
+            async with db_engine.connect() as conn:
+                n = (
+                    await conn.execute(
+                        text(
+                            "SELECT count(*) FROM text_chunks WHERE tenant_id = :t"
+                        ),
+                        {"t": tid},
+                    )
+                ).scalar()
+                assert n == 0, "derived table with tenant_id was not purged"
+
+                n = (
+                    await conn.execute(text(
+                        "SELECT count(*) FROM cached_answers"
+                    ))
+                ).scalar()
+                assert n == 1, "table without tenant_id must be skipped untouched"
+
+                rep = (
+                    await conn.execute(
+                        text(
+                            "SELECT report FROM deletion_reports WHERE tenant_id = :t"
+                        ),
+                        {"t": tid},
+                    )
+                ).scalar()
+            report = rep if isinstance(rep, dict) else json.loads(rep)
+            assert report["rows_deleted"]["text_chunks"] == 1
+            assert "cached_answers" not in report["rows_deleted"]
+        finally:
+            async with db_engine.begin() as conn:
+                await conn.execute(text("DROP TABLE IF EXISTS text_chunks"))
+                await conn.execute(text("DROP TABLE IF EXISTS cached_answers"))
