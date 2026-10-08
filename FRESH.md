@@ -424,6 +424,32 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ---
 
+# PHASE 10 — POST-SPRINT 3 FIXES (CORS + Login Redirect) — **COMPLETED**
+
+## CORS Configuration Fix (`app/main.py`)
+**Issue:** Frontend at `http://localhost:5173` getting "Failed to fetch" on login — CORS headers missing.
+**Root Cause:** `CORS_ALLOWED_ORIGINS` defined in config but CORS middleware not applied in `app/main.py`.
+**Fix:** Added `CORSMiddleware` with `allow_origins` from `settings.CORS_ALLOWED_ORIGINS.split(",")`, `allow_credentials=True`, `allow_methods=["*"]`, `allow_headers=["*"]`.
+**Verification:** `OPTIONS /auth/login` now returns `access-control-allow-origin: http://localhost:5173` and `access-control-allow-credentials: true`.
+
+## Login Redirect Fix (`frontend/src/pages/LoginPage.tsx`)
+**Issue:** After successful login, user not redirected to role-appropriate page (stuck on login).
+**Root Cause:** `LoginPage` called raw API `login` from `api/auth.ts` which stores token in localStorage but **does not update AuthContext state**. `HomeRedirect` read `role` from `useAuth()` which was still `null`.
+**Fix:** Changed `LoginPage` to use `useAuth()` context's `login` function, which:
+1. Calls the API
+2. Stores token via `setAuth`
+3. **Updates AuthContext state** (role, tenantId, user)
+**Result:** Role-based redirect now works:
+- `super_admin` → `/admin/tenants`
+- `client_admin` → `/dashboard`
+- `employee` → `/documents`
+
+**Validation:**
+- TypeScript (`tsc --noEmit`) ✅ 0 errors
+- Production Build (`npm run build`) ✅ 300 kB JS, 11 kB CSS
+
+---
+
 ## Summary
 
 **Completed Phases:** 1-9 ✅
