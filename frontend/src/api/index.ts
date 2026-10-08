@@ -11,3 +11,4 @@ export * from './answers';
 export * from './feedback';
 export * from './tenant';
 export * from './adminDashboard';
+export * from './dashboard';

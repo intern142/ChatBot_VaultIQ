@@ -12,7 +12,7 @@ export const PATHS = {
   answers: '/answers',
   settings: '/settings',
   resetPassword: '/reset-password',
-  dashboard: '/',
+  dashboard: '/dashboard',
   dashboardOverview: '/dashboard/overview',
   dashboardOverview30d: '/dashboard/overview/30d',
   dashboardDocuments: '/dashboard/documents',

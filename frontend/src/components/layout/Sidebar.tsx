@@ -70,6 +70,8 @@ export function Sidebar({ role, tenantId }: SidebarProps) {
     { path: '/storage', label: 'Storage', icon: '💾' },
   ];
 
+  const clientAdminNav = [{ path: '/dashboard', label: 'Dashboard', icon: '📊' }];
+
   return (
     <aside style={styles.sidebar} role="navigation" aria-label="Main navigation">
       <div style={styles.brand}>
@@ -96,6 +98,21 @@ export function Sidebar({ role, tenantId }: SidebarProps) {
         )}
         {(role === 'client_admin' || role === 'employee') && (
           <ul style={styles.list}>
+            {role === 'client_admin' &&
+              clientAdminNav.map((item) => (
+                <li key={item.path}>
+                  <NavLink
+                    to={item.path}
+                    style={({ isActive }) => ({
+                      ...navLinkStyle(isActive),
+                      ...(isActive ? styles.navLinkActive : {}),
+                    })}
+                  >
+                    <span style={styles.icon}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </NavLink>
+                </li>
+              ))}
             {tenantNav.map((item) => (
               <li key={item.path}>
                 <NavLink

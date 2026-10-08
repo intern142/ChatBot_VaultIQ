@@ -20,6 +20,8 @@ import type {
   FeedbackUpdate,
   FeedbackResponse,
   FeedbackListResponse,
+  OverviewResponse,
+  PaginatedResponse,
 } from '../types';
 import { ApiError } from '../errors';
 import { mockDb } from './db';
@@ -350,4 +352,194 @@ export async function handleListFeedback(params?: {
   const total = rows.length;
   const start = (page - 1) * pageSize;
   return { feedback: rows.slice(start, start + pageSize), total, page, page_size: pageSize };
+}
+
+// ---------------------------------------------------------------------------
+// VQ-302 dashboard (client admin)
+//
+// Sample rows reuse the *declared fields* of the canonical per-entity
+// contracts (DocumentResponse, UserResponse, AuditLogResponse,
+// FeedbackResponse). The dashboard endpoints themselves type items as
+// List[dict], so these keys are the strongest available evidence of shape.
+// knowledge-gaps rows use question/count/last_asked per VQ302_HANDOFF.md.
+// ---------------------------------------------------------------------------
+
+const mockDashboardDocuments: Record<string, unknown>[] = [
+  {
+    id: 'doc-1',
+    original_filename: 'security-policy.pdf',
+    category: 'policy',
+    status: 'approved',
+    processing_status: 'ready',
+    size_bytes: 245760,
+    created_at: '2026-09-28T09:15:00Z',
+  },
+  {
+    id: 'doc-2',
+    original_filename: 'onboarding-sop.docx',
+    category: 'sop',
+    status: 'pending',
+    processing_status: 'processing',
+    size_bytes: 98304,
+    created_at: '2026-10-02T14:40:00Z',
+  },
+  {
+    id: 'doc-3',
+    original_filename: 'leave-policy.pdf',
+    category: 'hr',
+    status: 'rejected',
+    processing_status: 'failed',
+    size_bytes: 51200,
+    created_at: '2026-10-05T11:05:00Z',
+  },
+];
+
+const mockDashboardUsers: Record<string, unknown>[] = [
+  {
+    id: 'user-1',
+    email: 'admin@acme.test',
+    role: 'client_admin',
+    is_active: true,
+    created_at: '2026-08-14T08:00:00Z',
+  },
+  {
+    id: 'user-2',
+    email: 'employee1@acme.test',
+    role: 'employee',
+    is_active: true,
+    created_at: '2026-09-01T10:30:00Z',
+  },
+  {
+    id: 'user-3',
+    email: 'former@acme.test',
+    role: 'employee',
+    is_active: false,
+    created_at: '2026-07-19T16:12:00Z',
+  },
+];
+
+const mockDashboardAudit: Record<string, unknown>[] = [
+  {
+    id: 'audit-1',
+    action: 'document.approve',
+    target_type: 'document',
+    actor_role: 'client_admin',
+    created_at: '2026-10-03T09:22:00Z',
+  },
+  {
+    id: 'audit-2',
+    action: 'user.invite',
+    target_type: 'user',
+    actor_role: 'client_admin',
+    created_at: '2026-10-04T13:47:00Z',
+  },
+  {
+    id: 'audit-3',
+    action: 'document.upload',
+    target_type: 'document',
+    actor_role: 'client_admin',
+    created_at: '2026-10-06T07:58:00Z',
+  },
+];
+
+const mockDashboardFeedback: Record<string, unknown>[] = [
+  {
+    id: 'fb-1',
+    answer_id: 'answer-1',
+    vote: 1,
+    comment: 'Exactly what I needed',
+    created_at: '2026-10-04T10:10:00Z',
+  },
+  {
+    id: 'fb-2',
+    answer_id: 'answer-2',
+    vote: -1,
+    comment: 'Out of date',
+    created_at: '2026-10-05T15:35:00Z',
+  },
+];
+
+const mockDashboardKnowledgeGaps: Record<string, unknown>[] = [
+  {
+    question: 'How do I reset my VPN credentials?',
+    count: 7,
+    last_asked: '2026-10-06T08:15:00Z',
+  },
+  {
+    question: 'What is the parental leave policy?',
+    count: 5,
+    last_asked: '2026-10-05T12:02:00Z',
+  },
+  {
+    question: 'Who approves expense claims over 500?',
+    count: 3,
+    last_asked: '2026-10-01T09:44:00Z',
+  },
+];
+
+const mockDashboardLists: Record<string, Record<string, unknown>[]> = {
+  documents: mockDashboardDocuments,
+  users: mockDashboardUsers,
+  audit: mockDashboardAudit,
+  feedback: mockDashboardFeedback,
+  'knowledge-gaps': mockDashboardKnowledgeGaps,
+};
+
+export async function handleDashboardOverview(): Promise<OverviewResponse> {
+  await latency();
+  const questions_per_day_30d: Array<{ day: string; count: number }> = [];
+  for (let i = 29; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    questions_per_day_30d.push({ day, count: (i * 7) % 5 });
+  }
+  return {
+    questions_per_day_30d,
+    active_users: 3,
+    answered_count: 12,
+    partial_count: 4,
+    not_found_count: 3,
+    avg_confidence: 0.78,
+  };
+}
+
+export async function handleDashboardList(
+  entity: string,
+  params?: { limit?: number; offset?: number; search?: string },
+): Promise<PaginatedResponse> {
+  await latency();
+  const rows = mockDashboardLists[entity];
+  if (!rows) throw new ApiError('Not found', 404);
+  const limit = params?.limit ?? 50;
+  const offset = params?.offset ?? 0;
+  let filtered = rows;
+  const search = params?.search?.trim().toLowerCase();
+  if (search) {
+    filtered = rows.filter((row) =>
+      Object.values(row).some((value) => String(value).toLowerCase().includes(search)),
+    );
+  }
+  return { items: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset };
+}
+
+// Mirrors the backend's _csv_escape_cell policy (app/routes/dashboard.py):
+// prefix formula-triggering leading characters with an apostrophe, double
+// any embedded quotes.
+function csvEscapeCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let s = String(value);
+  if (s.length > 0 && ['+', '-', '=', '@', '\t', '\r'].includes(s[0])) s = `'${s}`;
+  if (s.includes('"')) s = s.replace(/"/g, '""');
+  return s;
+}
+
+export function handleDashboardExport(entity: string): string {
+  const rows = mockDashboardLists[entity];
+  if (!rows) throw new ApiError('Not found', 404);
+  if (rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.map((h) => `"${h}"`).join(',')];
+  for (const row of rows) {
+    lines.push(headers.map((h) => csvEscapeCell(row[h])).join(','));
+  }
+  return `${lines.join('\n')}\n`;
 }

@@ -328,7 +328,55 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ---
 
-# PHASE 8 — DASHBOARD (VQ-302) — **PENDING**
+# PHASE 8 — DASHBOARD (VQ-302) — **COMPLETED**
+
+## VQ-302: Client Admin Dashboard
+**Backend Contract (read from `app/routes/dashboard.py`, `app/schemas/dashboard.py`, verified against live `/openapi.json`):**
+- `GET /dashboard/overview` → `OverviewResponse {questions_per_day_30d: List[dict], active_users, answered_count, partial_count, not_found_count, avg_confidence}` — 30-day series entries observed as `{day, count}` (evidence: `app/services/platform_stats.py:161`); list item shapes **undeclared** (`List[dict]`)
+- `GET /dashboard/overview/30d` → same shape as overview
+- `GET /dashboard/{documents|users|audit|feedback|knowledge-gaps}?limit&offset&search` → `PaginatedResponse {items: List[dict], total, limit, offset}` — item shapes **undeclared**
+- `GET /dashboard/export/{entity}` → CSV; `knowledge-gaps` export **not implemented** (backend returns 404)
+- Auth: `require_roles_with_tenant("client_admin")` → super_admin/employee → **403**; no credentials → 403 (FastAPI `HTTPBearer`); invalid token → 401
+- **CRITICAL BLOCKER**: `/dashboard/*` routes **NOT MOUNTED** in `app/main.py` (imports `dashboard_router` line 6, but only `admin_dashboard_router` included line 27) → live requests return **404** regardless of auth
+- Handlers are stubs: overview returns zeros/empty array; lists return `{"items": [], "total": 0}`; export returns fake CSV
+- Backend test `tests/test_dashboard.py` asserts 401/200/403 only (no 404 test since test client mounts routers directly)
+
+**Frontend Components Created:**
+- `src/api/dashboard.ts` — `getDashboardOverview`, `getDashboardList(entity, params)`, `getKnowledgeGaps`, `downloadDashboardCsv`; real mode uses `fetch` + `getToken()` + `normaliseError` for CSV blob; mock dispatch via dynamic import
+- `src/api/mock/handlers.ts` — sample rows for all 5 entities (documents/users/audit/feedback/knowledge-gaps) using canonical fields; `handleDashboardOverview` (30-day `{day,count}` series, `avg_confidence: 0.78`); `handleDashboardList` (limit/offset/search filter, 404 unknown entity); `handleDashboardExport` + `csvEscapeCell` (formula-safe prefix `'` for `+-=@\t\r`, doubles quotes)
+- `src/hooks/useDashboard.ts` — `useDashboardOverview` (auto-fetch, reload), `useDashboardList(entity, limit=10)` (search/offset/tick effect, `runSearch`, `goToOffset`, `reload`), `useDashboardExport` (`triggerBrowserDownload` via `URL.createObjectURL` + anchor click), `dashboardErrorMessage` (401→session expired, 403→permission, 404→blocker message), `DASHBOARD_404_MESSAGE`
+- `src/components/dashboard/OverviewPanel.tsx` — stat cards (Active users, Answered, Partial, Not found, Avg confidence), questions-per-day bar chart with `isDayCount` type guard (`type DayCount = { day; count }` — type alias, not interface, for filter narrowing into `Record<string, unknown>`)
+- `src/components/dashboard/DashboardListSection.tsx` — per-entity section; `ENTITY_COLUMNS` config (configured columns filtered to present keys + unknown keys appended `titleCase`d); `formatCell` (null→'—', boolean→Yes/No, size_bytes→KB, `*_at`/`last_asked`/`date`→locale, vote→👍/👎); search form (`role="search"`); toolbar with Export CSV (disabled for knowledge-gaps); loading Spinner / error Alert+Retry / EmptyState / table / "Showing X–Y of Z" pagination; inline `styles: Record<string, React.CSSProperties>`
+- `src/components/dashboard/index.ts` — exports both
+- `src/pages/DashboardPage.tsx` — header, overview section (Spinner "Loading dashboard…", Alert+Retry on error), tablist with 5 tabs (documents/users/audit/feedback/knowledge-gaps), `<DashboardListSection key={activeTab} entity={activeTab} />`
+- `src/routes/paths.ts` — `dashboard: '/'` → `'/dashboard'` (no prior usages)
+- `src/routes/index.tsx` — `HomeRedirect` component (role-based: super_admin→tenants, client_admin→dashboard, employee→documents, else login) replacing loop-prone home route; new `/dashboard` route wrapped in `RequireRole(['client_admin'])`
+- `src/components/layout/Sidebar.tsx` — added `clientAdminNav` (Dashboard 📊 `/dashboard`) rendered only for `client_admin`
+- `src/hooks/index.ts` — exports `useDashboardOverview`, `useDashboardList`, `useDashboardExport`, `dashboardErrorMessage`
+- `src/api/index.ts` — `export * from './dashboard'`
+
+**Routing Fixes (Incidental but Necessary):**
+- `components/layout/Layout.tsx` is **dead code** (only referenced by `components/layout/index.ts`); live nav is `AppShell` + `Sidebar`
+- Login default redirect `'/dashboard'` previously hit NotFoundPage
+- `'/'` route had `RequireRole(['super_admin'])` → `Navigate('/')` loop for non-super-admins (fixed by `HomeRedirect`)
+
+**Decisions (deliberate, reviewer may push back):**
+1. **Contract gap — `List[dict]` item shapes undeclared** — chose column subsets from canonical contracts (`DocumentResponse`, `UserResponse`, `AuditLogResponse`, `FeedbackResponse`); knowledge-gaps keys `question/count/last_asked` from `VQ302_HANDOFF.md`; `questions_per_day_30d` entries `{day,count}` from `platform_stats.py:161`. No invented fields.
+2. **Export CSV disabled for knowledge-gaps** — backend returns 404; UI disables button, error message mirrors `dashboardErrorMessage`.
+3. **404 blocker message** — when `/dashboard/*` returns 404, `dashboardErrorMessage` surfaces `DASHBOARD_404_MESSAGE` ("Dashboard endpoints not available: routes not mounted in backend. See FRESH.md Phase 8 blocker.") instead of generic "Not found".
+4. **Inline styles in `DashboardListSection`** — per project pattern (`FeedbackPanel` uses same); `styles: Record<string, React.CSSProperties>` typed.
+5. **`DayCount` as `type` alias (not `interface`)** — required for `filter` type narrowing into `Record<string, unknown>`.
+
+**Verification (Phase 8):**
+| Check | Result |
+|---|---|
+| TypeScript (`tsc --noEmit`) | ✅ 0 errors |
+| Tests (mock mode, full suite) | ✅ 58 passed (7 dashboardApi + 14 useDashboard + 7 DashboardPage + 30 Phase 7 + 1 pre-existing) |
+| Production build | ✅ 292.53 kB JS, 10.93 kB CSS |
+| Real API mode (one-off vitest, `VITE_API_MODE=real`, file deleted after run) | ✅ 9/9 passed: login works; all `/dashboard/*` endpoints return 404 (routes not mounted) |
+| Live contract spot-check (curl vs `/openapi.json`) | ✅ matches |
+
+- **Backend contract blockers documented in FRESH.md (above)**: routes not mounted (live 404), stub handlers, undeclared `List[dict]` item shapes and the shape-evidence decisions. **No backend changes made** (per rules).
 
 ---
 
@@ -338,13 +386,13 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ## Summary
 
-**Completed Phases:** 1-7 ✅
-**Remaining Phases:** 8-9 ⏳
+**Completed Phases:** 1-8 ✅
+**Remaining Phases:** 9 ⏳
 
 **All Validation Passing:**
 - ✅ TypeScript: 0 errors
-- ✅ Production Build: 279 kB JS, 11 kB CSS
-- ✅ Tests: 30 passed (mock); 12/12 passed (real-mode spot check, Phase 7)
+- ✅ Production Build: 292 kB JS, 11 kB CSS
+- ✅ Tests: 58 passed (mock); 9/9 passed (real-mode spot check, Phase 8)
 
 **Sprint 1/2 Regression Status:** ✅ All preserved (login, logout, documents, tenants, auth, routing)
 **Tenant Isolation:** ✅ Enforced by backend RLS + frontend route guards
