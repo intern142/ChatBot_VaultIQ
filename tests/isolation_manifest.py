@@ -29,6 +29,12 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+
+    # Offboarding & deletion reports — super_admin only (VQ-403)
+    ("PATCH", "/admin/tenants/{tenant_id}/offboard"),
+    ("PATCH", "/admin/tenants/{tenant_id}/cancel-offboarding"),
+    ("GET", "/admin/deletion-reports"),
+    ("GET", "/admin/deletion-reports/{report_id}"),
 }
 
 

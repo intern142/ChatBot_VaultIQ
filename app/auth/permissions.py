@@ -41,6 +41,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
     ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
     ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
+
+    # Offboarding & deletion reports — super_admin only (VQ-403)
+    ("PATCH", "/admin/tenants/{tenant_id}/offboard"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/cancel-offboarding"): {"super_admin"},
+    ("GET", "/admin/deletion-reports"): {"super_admin"},
+    ("GET", "/admin/deletion-reports/{report_id}"): {"super_admin"},
 }
 
 
