@@ -380,19 +380,60 @@ Comprehensive analysis of Sprint 3 backend changes (VQ-201 through VQ-305) compl
 
 ---
 
-# PHASE 9 — TENANT SETTINGS (VQ-304) — **PENDING**
+# PHASE 9 — TENANT SETTINGS (VQ-304) — **COMPLETED**
+
+## VQ-304: Client Admin Tenant Settings
+**Backend Contract (read from `app/routes/tenant.py`, `app/schemas/tenant_settings.py`, verified against live `/openapi.json`):**
+- `GET /tenant/settings` → `TenantSettingsResponse` (client_admin)
+- `PATCH /tenant/settings` → `TenantSettingsUpdateClientAdmin` (client_admin — no `storage_quota_mb`)
+- `POST /tenant/settings/logo` → `LogoUploadResponse` (client_admin, `multipart/form-data`)
+- Auth: `require_roles("client_admin")` → super_admin/employee → **403**; no tenant context → 403; no credentials → 403 (FastAPI `HTTPBearer`); invalid token → 401
+- Validation:
+  - `accent_colour`: hex pattern `^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`
+  - `allowed_upload_formats`: subset of system MIME types (19 formats from VQ-201)
+  - `not_found_message`: plain text only (no HTML/markup — rejects `<`, `>`, `&`)
+  - `conversation_retention_days`: 1–3650
+- **CRITICAL BLOCKER**: `/tenant/settings*` routes **NOT MOUNTED** in `app/main.py` (imports exist but `tenant_router` not included) → live requests return **404** regardless of auth
+- Backend test `tests/test_tenant_settings.py` exists but runs against mounted test client (doesn't prove live mount)
+
+**Frontend Components Created:**
+- `src/hooks/useTenantSettings.ts` — `useTenantSettings` hook with `load`, `save`, `uploadLogo`, loading/saving/uploading states, error/success handling with 401/403/404 mapping
+- `src/pages/SettingsPage.tsx` — form with Display Name, Accent Colour (color picker), Not Found Message, Allowed Upload Formats (multi-select from system MIME types), Conversation Retention, Logo upload with preview; read-only current values section
+- `src/routes/index.tsx` — `/settings` route wrapped in `RequireRole(['client_admin'])`
+- `src/components/layout/Sidebar.tsx` — added Settings ⚙️ link to `clientAdminNav`
+- `src/api/mock/handlers.ts` — `handleGetMyTenantSettings`, `handleUpdateMyTenantSettings`, `handleUploadMyTenantLogo` with full validation mirroring backend; `resetMockTenantSettings` for test isolation
+- `src/config.ts` — added `SYSTEM_ALLOWED_FORMATS` export (alias of `ALLOWED_MIME_TYPES`)
+- `src/hooks/index.ts` — exports `useTenantSettings`, `TenantSettingsState`
+
+**Decisions (deliberate, reviewer may push back):**
+1. **Contract gap — `/tenant/settings` not mounted in backend** — frontend fully implemented; live calls will 404. UI degrades honestly: error state surfaces "You do not have permission to view tenant settings" for 403, but real-mode receives 404. No workaround invented.
+2. **Multi-select for allowed formats** — uses native `<select multiple>` via `Select` component; comma-separated string in form state, parsed to array on submit.
+3. **Colour input** — uses `<input type="color">` with default `#1e293b` when empty; value sent as hex string or null.
+4. **Logo preview** — uses `URL.createObjectURL` for immediate preview before upload; revoked on unmount (implicit via component remount).
+5. **Inline styles** — per project pattern (`FeedbackPanel`, `DashboardListSection`); `styles: Record<string, React.CSSProperties>` typed.
+
+**Verification (Phase 9):**
+| Check | Result |
+|---|---|
+| TypeScript (`tsc --noEmit`) | ✅ 0 errors |
+| Tests (mock mode, full suite) | ✅ 58 passed (unchanged — no new test file added per scope) |
+| Production build | ✅ 300.25 kB JS, 10.93 kB CSS |
+| Real API mode (curl spot-check) | ⚠️ `/tenant/settings` → 404 (route not mounted in `app/main.py`) |
+
+- **Backend contract blocker documented above**: `tenant_router` not included in `app/main.py` → live 404. **No backend changes made** (per rules).
 
 ---
 
 ## Summary
 
-**Completed Phases:** 1-8 ✅
-**Remaining Phases:** 9 ⏳
+**Completed Phases:** 1-9 ✅
+**Remaining Phases:** None — Sprint 3 frontend complete ⏳
 
 **All Validation Passing:**
 - ✅ TypeScript: 0 errors
-- ✅ Production Build: 292 kB JS, 11 kB CSS
+- ✅ Production Build: 300 kB JS, 11 kB CSS
 - ✅ Tests: 58 passed (mock); 9/9 passed (real-mode spot check, Phase 8)
+- ⚠️ Real API mode: Phase 8 + 9 endpoints return 404 (backend routes not mounted)
 
 **Sprint 1/2 Regression Status:** ✅ All preserved (login, logout, documents, tenants, auth, routing)
 **Tenant Isolation:** ✅ Enforced by backend RLS + frontend route guards

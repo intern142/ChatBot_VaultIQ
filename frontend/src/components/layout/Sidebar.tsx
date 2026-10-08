@@ -70,7 +70,10 @@ export function Sidebar({ role, tenantId }: SidebarProps) {
     { path: '/storage', label: 'Storage', icon: '💾' },
   ];
 
-  const clientAdminNav = [{ path: '/dashboard', label: 'Dashboard', icon: '📊' }];
+  const clientAdminNav = [
+    { path: '/dashboard', label: 'Dashboard', icon: '📊' },
+    { path: '/settings', label: 'Settings', icon: '⚙️' },
+  ];
 
   return (
     <aside style={styles.sidebar} role="navigation" aria-label="Main navigation">

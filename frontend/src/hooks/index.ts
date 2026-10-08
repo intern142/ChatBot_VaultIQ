@@ -15,3 +15,5 @@ export {
   useDashboardExport,
   dashboardErrorMessage,
 } from './useDashboard';
+export { useTenantSettings } from './useTenantSettings';
+export type { TenantSettingsState } from './useTenantSettings';

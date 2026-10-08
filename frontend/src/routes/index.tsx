@@ -13,6 +13,7 @@ import PasswordResetPage from '../pages/PasswordResetPage';
 import SearchPage from '../pages/SearchPage';
 import AnswersPage from '../pages/AnswersPage';
 import DashboardPage from '../pages/DashboardPage';
+import SettingsPage from '../pages/SettingsPage';
 import { AppShell } from '../components/layout/AppShell';
 
 function PrivateLayout() {
@@ -99,6 +100,14 @@ export default function AppRoutes() {
           element={
             <RequireRole allowedRoles={['client_admin', 'employee']}>
               <AnswersPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path={PATHS.settings}
+          element={
+            <RequireRole allowedRoles={['client_admin']}>
+              <SettingsPage />
             </RequireRole>
           }
         />

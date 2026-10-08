@@ -22,6 +22,8 @@ export const ALLOWED_MIME_TYPES = [
   'application/x-ole-storage',
 ] as const;
 
+export const SYSTEM_ALLOWED_FORMATS = ALLOWED_MIME_TYPES;
+
 export const MAX_FILE_SIZE_MB = 50;
 export const MAX_PAGE_SIZE = 100;
 

@@ -22,6 +22,9 @@ import type {
   FeedbackListResponse,
   OverviewResponse,
   PaginatedResponse,
+  TenantSettingsResponse,
+  TenantSettingsUpdateClientAdmin,
+  LogoUploadResponse,
 } from '../types';
 import { ApiError } from '../errors';
 import { mockDb } from './db';
@@ -542,4 +545,119 @@ export function handleDashboardExport(entity: string): string {
     lines.push(headers.map((h) => csvEscapeCell(row[h])).join(','));
   }
   return `${lines.join('\n')}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// VQ-304 tenant settings (client admin)
+// Mirrors app/routes/tenant.py and app/schemas/tenant_settings.py
+// ---------------------------------------------------------------------------
+
+const SYSTEM_ALLOWED_FORMATS = [
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/epub+zip',
+  'message/rfc822',
+  'image/png',
+  'image/jpeg',
+  'image/tiff',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.oasis.opendocument.presentation',
+  'application/x-ole-storage',
+];
+
+let mockTenantSettings: TenantSettingsResponse = {
+  tenant_id: 'mock-tenant',
+  display_name: null,
+  logo_path: null,
+  accent_colour: null,
+  not_found_message: null,
+  allowed_upload_formats: null,
+  conversation_retention_days: null,
+  updated_by: null,
+  updated_at: new Date().toISOString(),
+};
+
+function validateFormats(formats?: string[] | null): void {
+  if (!formats) return;
+  for (const fmt of formats) {
+    if (!SYSTEM_ALLOWED_FORMATS.includes(fmt)) {
+      throw new ApiError(`Format not allowed: ${fmt}`, 422);
+    }
+  }
+}
+
+function validateNotFoundMessage(msg?: string | null): void {
+  if (!msg) return;
+  if (/[<>&]/.test(msg)) {
+    throw new ApiError('Not found message must be plain text (no HTML/markup)', 422);
+  }
+}
+
+function validateAccentColour(colour?: string | null): void {
+  if (!colour) return;
+  if (!/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(colour)) {
+    throw new ApiError('Accent colour must be a valid hex colour (e.g., #1e293b)', 422);
+  }
+}
+
+export async function handleGetMyTenantSettings(): Promise<TenantSettingsResponse> {
+  await latency();
+  return { ...mockTenantSettings };
+}
+
+export async function handleUpdateMyTenantSettings(
+  payload: TenantSettingsUpdateClientAdmin,
+): Promise<TenantSettingsResponse> {
+  await latency();
+  validateFormats(payload.allowed_upload_formats);
+  validateNotFoundMessage(payload.not_found_message);
+  validateAccentColour(payload.accent_colour);
+  mockTenantSettings = {
+    ...mockTenantSettings,
+    ...payload,
+    updated_by: 'mock-user',
+    updated_at: new Date().toISOString(),
+  };
+  return { ...mockTenantSettings };
+}
+
+export async function handleUploadMyTenantLogo(
+  _file: File,
+): Promise<LogoUploadResponse> {
+  await latency();
+  const path = `/uploads/mock-tenant/logo-${Date.now()}.png`;
+  mockTenantSettings = {
+    ...mockTenantSettings,
+    logo_path: path,
+    updated_by: 'mock-user',
+    updated_at: new Date().toISOString(),
+  };
+  return {
+    path,
+    size_bytes: 1024,
+    mime_type: 'image/png',
+  };
+}
+
+export function resetMockTenantSettings(): void {
+  mockTenantSettings = {
+    tenant_id: 'mock-tenant',
+    display_name: null,
+    logo_path: null,
+    accent_colour: null,
+    not_found_message: null,
+    allowed_upload_formats: null,
+    conversation_retention_days: null,
+    updated_by: null,
+    updated_at: new Date().toISOString(),
+  };
 }
