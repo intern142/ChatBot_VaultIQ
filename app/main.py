@@ -10,14 +10,15 @@ from app.routes.search import router as search_router
 
 app = FastAPI(
     title="VaultIQ API",
-    description="Multi-tenant documents-only Q&A system",
-    version="0.1.0",
+    version="1.0.0",
+    description="Multi-tenant document Q&A with strict tenant isolation",
 )
 
 app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(admin_router)
 app.include_router(invite_router)
+app.include_router(dashboard_router)
 app.include_router(users_router)
 app.include_router(feedback_router)
 app.include_router(search_router)

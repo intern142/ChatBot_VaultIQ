@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from typing import List, Optional
+=======
+from typing import List
+>>>>>>> vq-205
 from pydantic import BaseModel, Field
 import uuid
 

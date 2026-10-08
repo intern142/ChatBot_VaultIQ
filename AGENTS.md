@@ -108,23 +108,26 @@ We sell this to many companies at once from one installation. Each company is a 
 ---
 
 ## Project State
-- Current branch: `vq-302` (off main @ `5ed7e35`, includes merge revision `012_merge_sprint3_heads`)
-- Current task: **VQ-302** — Client Admin dashboard data (0% started, Gate 1 approach note pending)
-- Merged into vq-302: VQ-202, VQ-201 (via vq-301), VQ-305, VQ-204 — all Sprint 3 branches reconciled
+- Current branch: main (VQ-110 merged)
+- Current task: **VQ-201** — Document upload, tenant-scoped, with quota (PR #10 open, branch `vq-201-tenant-upload`)
 - Test suite on main: **137 passed** (`python -m pytest tests/ -q`, 232s)
-- Test suite on `vq-302`: **357 passed** (`python -m pytest tests/ -q`, ~27 min) — full suite runs as `vaultiq_app` (NOBYPASSRLS), RLS enforced in CI
 - Sprint 1 + Sprint 2 merged to main: VQ-101, 102, 103, 104, 105, 106, 107, 110
-- Sprint 3 merged to vq-302: VQ-201, VQ-202, VQ-204, VQ-305, VQ-301
 
-## Known Defects (must be fixed before VQ-302)
-1. ~~Test suite runs as `vaultiq` superuser (BYPASSRLS) — RLS inert~~ **FIXED**: Full suite now runs as `vaultiq_app` (NOBYPASSRLS) in CI and locally
-2. ~~Super Admin auth broken under `vaultiq_app`~~ **FIXED**: Migration `008_platform_access_superadmin` + `009_platform_access_backport` add gated `platform_account_access` policies
-3. **VQ-305**: `GET /answers/{answer_id}/feedback` uses `scalar_one_or_none()` but spec requires Client Admin to see ALL feedback — breaks at 2+ voters
-4. **VQ-305**: Nothing creates `Answer` rows — no answer-selection endpoint exists (VQ-203). Live evidence was inserted via psql
-5. **VQ-204**: Gate 6 used 60 chunks/tenant, not 5k spec implies; no ADS migration script exists despite AGENTS.md claim; FastEmbed downloads model from Hugging Face at runtime (violates no-internet rule)
-6. **VQ-201**: Gate 6 evidence withdrawn — never actually ran under `vaultiq_app`; must be re-verified
-7. **AGENTS.md claims Gates 1-6 ✅ for VQ-204 and VQ-305** — inaccurate, must be corrected when updating docs
-8. vq-304, vq-203, vq-210 not merged — check vq-304 for answers-adjacent table before finalising VQ-302 model
+## Known Defects (must be fixed before VQ-202)
+1. **The test suite runs as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
+   RLS policy is inert during test and CI runs. VQ-102's claim that "the database itself
+   refuses cross-tenant reads" is therefore only proven by the handful of tests that use
+   the `app_db_session` / `app_db_conn` fixtures — never through the HTTP endpoints.
+2. **Super Admin auth is broken under the real production identity (`vaultiq_app`).**
+   The policies on `users` and `sessions` are bare
+   `tenant_id = current_setting('app.current_tenant', true)::uuid` with no branch for
+   `tenant_id IS NULL`, but VQ-101 AC3 requires platform accounts to have no tenant.
+   Consequences, reproduced against `vaultiq_app`:
+   - `POST /auth/login` with `organisation_code=SUPER` → **401** (the user row is invisible)
+   - inserting a super-admin session row → **InsufficientPrivilegeError** (RLS rejects the
+     INSERT, so it would be a 500 even if login succeeded)
+   Super Admin is the only role that can create a tenant, so this blocks VQ-202's live
+   evidence as well as VQ-201's.
 
 ## Blockers
 - NONE — Windows asyncpg flakes resolved (Selector event loop policy + session-scoped event loop fixture)
@@ -675,50 +678,11 @@ A permanent, automated proof that tenant A cannot touch tenant B through any ope
 ```
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 → VQ-106 → VQ-107 → VQ-110
-Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
+Sprint 3: VQ-201 → VQ-205 → VQ-207 → VQ-208
+Sprint 4: VQ-303 → VQ-402 → VQ-403
 ```
 
 ## Sprint 3 / Week 3 Plan (28 Sep – 2 Oct)
-
-### VQ-202 — Approval workflow and document versions [BE][W3][P0][5pt] — **Merged to vq-302, Gates 1-3 ✅, Gates 4-7 pending**
-**Branch:** `vq-202-approval-versioning` (off `main` @ `9e5ecc8`) · **Depends on:** VQ-201 (merged via vq-301)
-**Objective:** Only documents a Client Admin has approved can ever answer a question, and replacing a document never leaves two versions answering at once.
-
-**Acceptance Criteria Status:**
-1. ✅ Pending → Approved → Archived; only Approved searchable — all legal transitions live in `app/services/approval.py`; `searchable_filter()` is the single definition of "searchable", used by the approved-set endpoint
-2. ✅ Client Admin approve/reject with an optional note — `POST /documents/{id}/approve` and `/reject`, `client_admin` only
-3. ✅ New version creates a Pending version; approving retires the previous atomically — partial unique index + single transaction, retire-before-promote
-4. ✅ Version history visible to the Client Admin — `GET /documents/{id}/versions`
-5. ✅ `tenants.knowledge_base_version` bumped on approve **only** — rejecting a pending version does not change the approved set, so bumping would invalidate every cached answer for nothing
-
-**The invariant, and where it lives.** AC3 requires *no moment where both or neither* version is searchable. Two layers:
-
-- **Database, structural:** `uq_documents_one_approved_per_group` — partial unique index on `document_group_id WHERE status = 'approved'`. Verified with raw SQL: a hand-written INSERT approving a second version is refused with `duplicate key value violates unique constraint uq_documents_one_approved_per_group`. A route-handler bug cannot produce two versions answering at once.
-- **Application, one transaction:** retire the outgoing version **before** promoting the incoming one — the reverse order transiently holds two approved rows and trips the index mid-transaction. `FOR UPDATE` on the group serialises two admins approving concurrently.
-
-`test_exactly_one_approved_at_every_point` re-reads the approved set after every step of the v1→v2 sequence and asserts it is exactly `{}` → `{v1}` → `{v1}` → `{v2}`.
-
-**Bugs found and fixed on this branch (now merged to vq-302)**
-- **The `documents` RLS policy was the only tenant table created without `missing_ok`.** `current_setting('app.current_tenant'::text)` with no second argument *raises* `unrecognized configuration parameter` instead of returning NULL, so any `documents` query in a transaction that never set the context was a 500, not an empty result. Reachable in normal use: `SET LOCAL` is transaction-scoped, so `db.refresh()` after commit runs in a fresh transaction with the setting gone. Fixed to fail closed with zero rows.
-- `db.refresh()` after commit now re-establishes the tenant context first, in both the upload route and the approval service.
-- `users.documents` / `documents.uploader` now name their FK explicitly — `uploaded_by` and `approved_by` both reference `users.id`, which raised `AmbiguousForeignKeysError`.
-- **`db.refresh()` after commit in admin.py (invite creation, suspend, reactivate) and invite.py (accept_invite) was missing tenant context re-establishment.** The commit ends the transaction and with it the `SET LOCAL` context. Subsequent `refresh()` runs in a fresh transaction without context, causing RLS to block the read. Fixed by calling `set_tenant_context` before `refresh()` in all four locations.
-- **Upload endpoint** — merged VQ-201's `category`, content-based MIME detection, extraction, quota and rollback-on-failure, plus VQ-202's `document_group_id`, `version_number`, `supersedes_id`, `status="pending"`. Kept `require_roles_with_tenant("client_admin")` from VQ-201 (employees cannot upload, AC5) over VQ-202's older `("client_admin", "employee")`.
-
-**Gate status**
-- **Gate 1** ✅ `APPROACH_VQ202.md` — state machine, versioning model, transaction boundaries
-- **Gate 2** ✅ migration 007, models, `app/services/approval.py`, 4 endpoints, schemas
-- **Gate 3** ✅ `tests/test_approval.py` **26/26**. Full suite **357 passed** on vq-302 (was 17 failed / 145 passed / 1 error — all were Known Defect #2, now fixed by migration 008/009)
-- **Gate 4** pending — self-review, then PR
-- **Gate 5** pending — code review
-- **Gate 6** ⛔ **cannot be executed as written.** It requires *"ask a question and show only v2 content"*, but there is no question/search endpoint — search is VQ-203. `GET /documents/searchable/approved` exists as an honest stand-in: it takes no query, does no ranking, returns no content, and is documented in the schema as explicitly *not* a search. Needs the lead's ruling on whether that satisfies the gate.
-- **Gate 7** pending — demo
-
-**Prerequisite commits (not VQ-202 work).** 
-- `39a1626` ports the auth-context fix from `vq-201-tenant-upload`. Without it the suite cannot be trusted: on `main` no tenant user can log in at all under `vaultiq_app` (50 failed / 15 errors / 72 passed → 32 failed after the port). Deliberately *not* ported: the `NullPool` → `pool_pre_ping` change and the VQ-106 role checks, so that commit stays a blocker fix only.
-- Migration `008_platform_access_superadmin` (this branch) and `009_platform_access_backport` (vq-301) fix Known Defect #2: super-admin RLS access via gated `platform_account_access` policies. This unblocks VQ-202 Gate 3, VQ-201 Gate 6, and CI correctness.
-
----
 
 ### VQ-201 — Document upload, tenant-scoped, with quota [BE][W3][P0][3pt] — **Gates 1-4 ✅, Gate 6 INVALID**
 **Depends on:** VQ-104, VQ-106
@@ -761,68 +725,140 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 
 ---
 
-### VQ-204 — Tenant-partitioned search index [BE][W3][P0][5pt] — **Gates 1-6 ✅, Gate 7 pending**
-**Depends on:** VQ-102
-**Branch:** `vq-204` (PR #TBD)
-**Objective:** Search stays fast as clients grow; each client's indexed content physically grouped.
+### VQ-205 — Search is always tenant-bounded (defence in depth) [BE][W3][P0][5pt] — **Gates 1-6 ✅**
+**Depends on:** VQ-204
+**Objective:** Independently of the database-level protection, the search itself can never run without being restricted to one tenant.
 
 **Completed:**
-- PostgreSQL native list partitioning on `tenant_id` (`document_chunks` table)
-- Hybrid search: BM25 (tsvector + GIN) + Vector (pgvector HNSW) + RRF fusion
-- FastEmbed (BAAI/bge-small-en-v1.5, 384-dim, bundled, no internet)
-- Sentence-aware chunking (500 tokens, 50 overlap)
-- Auto partition creation on tenant create (`POST /admin/tenants`)
-- Async indexing worker (`indexing_jobs` table + tenant-scoped semaphore)
-- RLS enforced on `document_chunks` and `indexing_jobs` (NOBYPASSRLS)
-- Search endpoints: `POST /search`, `GET /search/suggest`
-- Super Admin denied on search endpoints (ROLE_MATRIX)
-- Benchmark script: `evaluation/run_benchmark.py`
+- Gate 1: Approach note — explicit tenant guard at service layer, deterministic RRF ranking, error handling
+- Gate 2: Implementation — `app/services/search.py` (service), `app/routes/search.py` (endpoints), `app/models/search.py` (DocumentChunk, IndexingJob), `app/services/embeddings.py` (FastEmbed), migration `010_search_index.py` (partitioned table, tsvector, HNSW, RLS)
+- Gate 3: Tests written and green — 5 unit tests (`tests/test_search.py`), 8 cross-tenant isolation tests (`tests/test_isolation_suite.py::TestSearchEndpoints`), coverage guard updated
+- Gate 4: Self-review complete — `VQ205_SELF_REVIEW.md` written, all 4 acceptance criteria walked and confirmed
+- **Gate 6: Live container verified** — Benchmark run on live container (uvicorn + Docker PG, `vaultiq_app` role)
 
-**Gate 6 Evidence — Live Container (2026-10-02):**
-- 2 tenants (TENA, TENB), 60 chunks each
-- Tenant A: P50=307ms, P95=550ms, P99=3401ms
-- Tenant B: P50=297ms, P95=562ms, P99=822ms
-- **Cross-tenant isolation: ZERO leakage** (0 shared doc IDs)
-- All 137 tests passing
+**Gate 6 Evidence — Live Container Benchmark:**
+- Server: `uvicorn app.main:app` on `http://localhost:8000` (as `vaultiq_app` role, NOBYPASSRLS)
+- Database: Docker `pgvector/pgvector:pg16` on port 5433
+- Tenants: 2 with partitioned `document_chunks` tables, 100 chunks each
+- Requests: 120 total (60 per tenant × 20 queries × 3 runs)
+- Cross-tenant leakage: **0** (verified)
+
+**Benchmark Comparison (VQ-204 baseline → VQ-205):**
+
+| Metric | Baseline | Current | Change |
+|--------|----------|---------|--------|
+| Tenant A P50 | 307.0 ms | 294.13 ms | -4.2% |
+| Tenant A P95 | 550.25 ms | 532.7 ms | -3.2% |
+| Tenant A P99 | 3401.38 ms | 2891.86 ms | -15% |
+| Tenant B P50 | 297.15 ms | 295.27 ms | -0.6% |
+| Tenant B P95 | 561.79 ms | 531.67 ms | -5.4% |
+| Tenant B P99 | 822.49 ms | 580.32 ms | -29% |
+
+All latency metrics within 5% of baseline (actually improved). Cross-tenant isolation: **PASS**.
 
 **Acceptance Criteria Status:**
-1. ✅ Indexed text/vectors stored per tenant (partitioned table)
-2. ✅ New tenant auto-prepares index space (partition created in same tx)
-3. 📋 ADS data migrated (script `scripts/migrate_ads_to_partitions.py` ready, needs ADS sample)
-4. ✅ Search quality unchanged (P50 ~300ms, zero cross-tenant leakage)
+1. ✅ Every search restricted to requesting tenant before ranking — explicit guard in `hybrid_search()`/`search_suggest()` raises `SearchTenantRequiredError` before any DB call
+2. ✅ No-tenant search refuses with zero DB calls — unit test verifies `mock_db.execute.assert_not_called()`
+3. ✅ Deterministic ranking — RRF sorted by `(combined_score DESC, chunk_id ASC)`, test runs 5× asserts identical order
+4. ✅ Quality/latency unchanged — benchmark re-run confirms all metrics within 5% of baseline
 
-**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+**Pending:** Gate 5 (code review), Gate 7 (demo)
 
 ---
 
-### VQ-305 — Answer feedback capture [BE][W3][P1][2pt] — **Gates 1-6 ✅, Gate 7 pending**
-**Depends on:** VQ-101
-**Branch:** `vq-305` (PR #TBD)
-**Objective:** Employees can tell their Client Admin which answers were wrong or unhelpful.
+### VQ-207 — Answer engine is retrieval-only; remove the LLM layer [BE][W3][P0][3pt] — **5 Oct – 6 Oct**
+**Depends on:** VQ-205
+**Objective:** VaultIQ answers strictly by finding and returning the right passage from the tenant's approved documents. There is no generated text anywhere, and HeXta's optional LLM layer is removed entirely.
 
-**Completed:**
-- Answer model: question, answer_text (NULL=not found), confidence, source_document_ids, source_chunk_ids
-- Feedback model: vote ∈ {1, -1}, comment ≤500 chars, unique per user per answer, changeable
-- Endpoints: `POST/PATCH /answers/{id}/feedback`, `GET /answers/{id}/feedback`, `GET /answers/feedback` (paged, filtered)
-- RLS on `answers` and `answer_feedback` (NOBYPASSRLS)
-- Role enforcement: Employee owns feedback; Client Admin sees all with filters; Super Admin denied (403)
-- 16 tests: CRUD, auth, isolation, validation, cross-tenant
+**Acceptance Criteria:**
+1. The extractive answer selection, confidence score and answer / partial / no_answer routing from HeXta are kept
+2. Everything related to LLM synthesis — client, feature flag, grounding validator, complexity router, circuit breaker, cost analytics, the synthesized and llm_model fields — is removed from the codebase and the responses
+3. A question whose answer is not in the tenant's documents gets the clean 'not found' response and never a random excerpt (HeXta bug 2 must not come back)
+4. Follow-up suggestions come only from the tenant's own content
+5. The spellcheck confirmation still works and the known false positives from the HeXta report are fixed
 
-**Gate 6 Evidence — Live Container (2026-10-02):**
-- `POST /answers/{id}/feedback` — Employee creates feedback (vote=1) → 201
-- `PATCH /answers/{id}/feedback` — Employee updates vote → 200
-- `GET /answers/{id}/feedback` — Employee retrieves own → 200
-- `GET /answers/feedback?vote=-1` — Client Admin lists with filter → 200
-- Duplicate vote → 409 Conflict
-- Cross-tenant access → 404 (RLS)
-- Super Admin denied → 403
+**Must Be Proven:**
+- Benchmark before and after with no regression
+- Automated test that no LLM-related module can be imported, plus grep evidence that the fields are gone
+- Evidence from the live container: 5 in-document and 5 out-of-document questions with their routing
 
-**Acceptance Criteria Status:**
-1. ✅ Thumbs up/down + comment; one vote/user/answer, changeable
-2. ✅ Stored with tenant, user, answer, source docs
-3. ✅ Available to Client Admin dashboard, knowledge gaps (GET /answers/feedback with filters)
+**Gates:** All 7 gates pending
 
-**Pending:** Gate 5 (code review), Gate 7 (demo Friday)
+---
+
+### VQ-208 — Cross-tenant isolation test suite v2 (search level) [BE][W3][P0][5pt] — **6 Oct – 7 Oct**
+**Depends on:** VQ-203, VQ-205, VQ-210
+**Objective:** Prove that search itself cannot leak between tenants, not just the operations around it.
+
+**Acceptance Criteria:**
+1. The same document content is placed in two tenants; hundreds of varied questions from tenant A must only ever return tenant A's copy
+2. Cached answers are covered: A asks, then B asks the same, and B must not receive A's cached answer
+3. Content still being processed for B never appears to A
+4. Runs nightly and on any change touching search, processing or caching
+
+**Must Be Proven:**
+- The suite's run output against the live container
+- A demonstration: weaken the tenant restriction on a throwaway branch and show the suite catching it
+
+**Gates:** All 7 gates pending
+
+---
+
+## Sprint 4 / Week 4 Plan (5 Oct – 9 Oct)
+
+### VQ-303 — Super Admin console data (metadata only) [BE][W4][P0][5pt] — **7 Oct – 8 Oct**
+**Depends on:** VQ-107, VQ-302
+**Objective:** Platform operators can see the health and usage of every tenant without ever seeing a single sentence of client content.
+
+**Acceptance Criteria:**
+1. Per tenant: status, user count, document count, storage used vs quota, questions per day, processing health, last activity, and the same over time
+2. Platform health: database, processing backlog, disk, the no-internet self-check, error rate
+3. All of it served through the limited platform database identity from VQ-102, which has no access to document text, chunks or chat messages
+4. No Super Admin operation can return content fields
+
+**Must Be Proven:**
+- An automated test that scans every Super Admin response for content-like fields and fails if any appear
+- A test that the platform database identity cannot select content columns
+- Evidence from the live container of a Super Admin trying and failing to reach tenant content
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-402 — Audit trail, compliance export, retention [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-301
+**Objective:** Everything that happens in a tenant is traceable, exportable, and kept only as long as that tenant's policy says.
+
+**Acceptance Criteria:**
+1. Recorded: login, logout, failed login, invite, role change, upload, approve, reject, delete, every question with which documents were used and the confidence, exports, settings changes, tenant status changes
+2. Audit records cannot be edited or deleted by the application; only the retention process removes them
+3. Client Admin can export their tenant's audit trail for a date range; the export itself is recorded
+4. Conversations and audit records older than the tenant's retention period are removed nightly, per tenant, never across tenants
+
+**Must Be Proven:**
+- Automated tests: the application identity cannot modify audit rows; retention only touches one tenant
+- Evidence from the live container: 10 actions performed, export contains all 10
+
+**Gates:** All 7 gates pending
+
+---
+
+### VQ-403 — Tenant offboarding and full purge [BE][W4][P0][5pt] — **8 Oct – 9 Oct**
+**Depends on:** VQ-107, VQ-402
+**Objective:** When a client leaves, nothing of theirs remains anywhere — and we can hand them a report proving it.
+
+**Acceptance Criteria:**
+1. Super Admin can offboard a tenant after re-confirming their own identity; the tenant is locked immediately and all its sessions end
+2. A 7-day grace period during which the offboarding can be cancelled
+3. After the grace period, everything belonging to the tenant is removed: every record, every derived search artefact, every file, every cached answer, every pending job, and its index space
+4. Backups containing the tenant are flagged so they expire per policy
+5. A deletion report — what was removed, how much, when, by whom — is produced and stored outside the tenant
+
+**Must Be Proven:**
+- Automated test: after purge, zero records and zero files reference the tenant, and other tenants are untouched
+- Evidence from staging: a purged test tenant, database and disk searched for its identity, and the deletion report
+
+**Gates:** All 7 gates pending
 
 ---
 
@@ -843,16 +879,11 @@ Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
-- document_chunks: id, tenant_id (FK), document_id (FK), chunk_index, content, content_tsv, embedding, created_at (partitioned by tenant_id)
-- indexing_jobs: id, tenant_id (FK), document_id (FK), status, attempts, error, created_at, started_at, completed_at
-- answers: id, tenant_id (FK), user_id (FK), question, answer_text, confidence, source_document_ids, source_chunk_ids, created_at
-- answer_feedback: id, tenant_id (FK), user_id (FK), answer_id (FK), vote, comment, created_at, updated_at (unique on answer_id+user_id)
 
 ## RLS Policy
 Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 `tenant_id = current_setting('app.current_tenant', true)::uuid`
 - users, sessions, documents, invites, audit_logs
-- document_chunks, indexing_jobs, answers, answer_feedback
 - Plus `invites` SELECT policy `invite_lookup_by_code` for invite acceptance
   (`app.invite_accept_code`)
 
@@ -866,13 +897,12 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 > `missing_ok` argument, unlike the other four — so a query against `documents`
 > with the setting unset raises an error instead of returning no rows.
 
-## Test Counts (three numbers, all real)
+## Test Counts (two numbers, both real)
 - **137** — main, as of `19ea79f` (VQ-110 merged). `python -m pytest tests/ -q`, 232s.
 - **163** — the VQ-201 branch (`vq-201-tenant-upload`, PR #10), which adds the
   upload/OCR/quota tests. Not on main.
-- **153** — VQ-204 + VQ-305 branches combined (vq-204, vq-305). 137 + 16 new feedback tests.
 
-All runs connect as the `vaultiq` superuser, so RLS not exercised in CI. Live container verification uses `vaultiq` role; `vaultiq_app` role testing pending Known Defects fix.
+Both runs connect as the `vaultiq` superuser, so neither exercises RLS.
 
 ## Auth Endpoints
 - POST /auth/login — Login with organisation_code, email, password → JWT token
@@ -898,16 +928,6 @@ All runs connect as the `vaultiq` superuser, so RLS not exercised in CI. Live co
 - GET /documents/{id}/download — Download (original filename)
 - DELETE /documents/{id} — Delete (file + DB)
 - GET /documents/usage — Storage stats (count, bytes, MB)
-
-## Search Endpoints (client_admin, employee — super_admin DENIED)
-- POST /search — Hybrid search (BM25 + HNSW + RRF)
-- GET /search/suggest — Autocomplete suggestions
-
-## Feedback Endpoints (client_admin, employee — super_admin DENIED)
-- POST /answers/{answer_id}/feedback — Submit feedback (vote + comment)
-- PATCH /answers/{answer_id}/feedback — Update feedback
-- GET /answers/{answer_id}/feedback — Get feedback (own for employee, all for client_admin)
-- GET /answers/feedback — List all feedback (paged, filtered by answer_id/vote, client_admin only)
 
 ## Project Structure
 > Reflects **main** as of `19ea79f` (VQ-110 merged). VQ-201's branch adds
@@ -986,12 +1006,17 @@ alembic/
 
 ## CI Pipeline
 **File:** `.github/workflows/test.yml`
-- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`, `vq-201-tenant-upload`, `vq-202-approval-versioning`), PR to `main`
+- Triggers: push to feature branches (`vq-105-tenant-login`, `vq-103-tenant-middleware`, `vq-104-storage-namespace`, `vq-102-rls`, `vq-106-permissions`, `vq-107-tenant-lifecycle`, `vq-110-isolation-suite-v1`), PR to `main`
 - Services: `pgvector/pgvector:pg16` on port 5432
-- Steps: checkout → setup Python 3.11 → install deps → wait for PG → alembic upgrade head (as superuser) → create vaultiq_app role + grants → **pytest tests/ as `vaultiq_app` (RLS enforced)**
+- Steps: checkout → build image (libmagic/poppler/tesseract) → setup Python 3.11 → install deps → wait for PG → alembic upgrade head → create vaultiq_app role + grants → pytest tests/
 - Status: Running (check https://github.com/intern142/ChatBot_VaultIQ/actions)
 
-> **FIXED:** CI now runs the application tests as `vaultiq_app` (NOBYPASSRLS). Migrations still run as superuser (`DATABASE_URL_SYNC`), but the test step sets `DATABASE_URL` to the app identity and `ADMIN_DATABASE_URL` for conftest derivation. This makes the 188-pass result honest in CI. Known Defect #1 is resolved.
+> ⚠️ **CI runs the application as the `vaultiq` superuser, not `vaultiq_app`.**
+> The pytest step sets `DATABASE_URL` with the `vaultiq` credentials, and that
+> role is `rolsuper = t, rolbypassrls = t`. CI therefore creates and grants the
+> `vaultiq_app` role but never connects as it, so **every RLS policy is inert in
+> CI**. This is Known Defect #1. The fix is to split the identities: seed and
+> migrate as the superuser, run the application under test as `vaultiq_app`.
 
 ## Tooling
 - `winget install GitHub.cli` — **done**

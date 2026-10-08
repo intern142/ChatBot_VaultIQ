@@ -23,8 +23,8 @@ def test_route_coverage_guard():
         "/auth/logout",
         "/auth/reset-password",
         "/invite/accept",
+        "/search",
     )
-    tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
 
@@ -409,6 +409,52 @@ class TestUploadEndpoint:
         data = {"category": "policy"}
         resp = await make_request(async_client, "POST", "/documents", token_b_emp, files=files, data=data)
         assert resp.status_code == 403
+
+
+# ---- Manifest completeness verification ----
+
+class TestSearchEndpoints:
+    """Search endpoints - tenant users only."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_search_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Search with tenant A token should not return tenant B's results."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(async_client, "POST", "/search", token, json={"query": "test", "top_k": 10})
+        assert resp.status_code in (200, 404)
+        data = resp.json()
+        # Verify no cross-tenant leakage in response body
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_suggest_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Suggest with tenant A token should not return tenant B's suggestions."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(async_client, "GET", "/search/suggest?q=test", token)
+        assert resp.status_code in (200, 404)
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
 
 
 # ---- Manifest completeness verification ----

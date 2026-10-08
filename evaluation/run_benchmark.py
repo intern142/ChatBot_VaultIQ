@@ -349,7 +349,11 @@ async def main():
     print(json.dumps(bench_a, indent=2))
     
     # Tenant B benchmark
+<<<<<<< HEAD
     print(f"\nBenchmarking Tenant B ({args.tenant_b})...")
+=======
+    print(f"\nBenchmarking Tenant B ({args.tenant_b})....")
+>>>>>>> vq-205
     bench_b = await benchmark_search(
         args.base_url, token_b, tenant_b, QUERIES, top_k=10, runs=3
     )
