@@ -127,6 +127,10 @@ We sell this to many companies at once from one installation. Each company is a 
 - Lockout: 5 failed attempts → 15 min lockout
 - Audit immutability enforced in the database (REVOKE UPDATE/DELETE), not in application code; only the SECURITY DEFINER retention function may delete audit rows
 - Retention is per-tenant (`tenants.retention_days`, default 365), driven by `python -m app.retention` (no scheduler infra in repo)
+- VQ-403 offboarding: grace is validated **inside** the SECURITY DEFINER `purge_tenant()` SQL function — no API endpoint can purge early; purge runs only via `python -m app.offboard_purge`
+- Offboarding requires password step-up: the acting super admin re-confirms with their own password (no MFA exists); wrong password → 403, generic detail
+- The deletion report lives **outside** the tenant: `deletion_reports` table, no RLS, no `vaultiq_app` grant; it is the sole survivor of a purge (audit rows are purged with the tenant and the report supersedes them)
+- Offboarding grace is a fixed 7 days (`OFFBOARD_GRACE_DAYS`); new state conflicts return 409 (VQ-107 used 400 — deliberate divergence, approved in APPROACH_VQ403.md)
 
 ## Tech Stack
 - Backend: FastAPI (Python 3.11)
@@ -140,11 +144,14 @@ We sell this to many companies at once from one installation. Each company is a 
 
 ## Database Tables
 - tenants: id, short_code, name, status, storage_quota_mb, retention_days, timestamps
+  - VQ-403 columns: offboarded_at, offboarded_by (FK users, ON DELETE SET NULL), purge_after, purged_at
 - users: id, tenant_id (FK, nullable), email, password_hash, role, failed_login_attempts, locked_until, timestamps
 - sessions: id, user_id (FK), tenant_id (FK), token_hash, is_revoked, expires_at, revoked_at, timestamps
 - documents: id, tenant_id (FK), original_filename, stored_filename, mime_type, size_bytes, uploaded_by, created_at
 - invites: id, tenant_id (FK), email, code, expires_at, used_at, created_by (FK users), created_at
 - audit_logs: id, tenant_id (FK), actor_user_id (FK, nullable), actor_role, action, target_type, target_id, details (JSONB), created_at
+- deletion_reports (VQ-403, platform-level): id, tenant_id (FK — tombstone tenant persists), short_code, name,
+  initiated_by (FK users), initiated_at, purge_after, purged_at, grace_days, report (JSONB), backup_flag (JSONB), created_at
 
 ## RLS Policy
 Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
@@ -158,6 +165,12 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 - Known caveat: no policy has a `tenant_id IS NULL` branch for platform
   accounts — see Known Defects in `STATE.md`
 - Index on audit export/purge path: `ix_audit_logs_tenant_created (tenant_id, created_at)`
+- `deletion_reports` (VQ-403) deliberately has **no RLS** and no `vaultiq_app`
+  grant: platform operators only (super_admin SELECT), stored outside the tenant
+- `purge_tenant(uuid)` (VQ-403, SECURITY DEFINER): the only lawful delete path
+  for a tenant's records including audit rows; validates grace internally
+  (`status='offboarding' AND purge_after <= now()`) or RAISEs; guarded
+  `to_regclass`+`tenant_id`-column loop purges derived tables when they exist
 
 ## Endpoints
 ### Auth
@@ -189,9 +202,21 @@ Every tenant-scoped table has FORCE ROW LEVEL SECURITY and a single policy:
 - GET /audit/export — Export own tenant's audit trail for a date range (csv|json);
   the export records itself (`export_audit`) before reading rows
 
+### Offboarding & deletion reports (super_admin only, VQ-403)
+- PATCH /admin/tenants/{id}/offboard — body {password}; step-up re-confirmation;
+  status→offboarding, revokes ALL sessions, purge_after = +7 days (409 if already
+  offboarding/purged, 404 unknown, allowed from active or suspended)
+- PATCH /admin/tenants/{id}/cancel-offboarding — only from offboarding → active;
+  clears offboard fields; audit `cancel_offboarding`
+- GET /admin/deletion-reports — list platform deletion reports (newest first, limit 200)
+- GET /admin/deletion-reports/{id} — single report (404 unknown)
+- Purge itself has **no endpoint**: `python -m app.offboard_purge` (daily, same ops
+  pattern as retention); grace unbreakable — enforced inside `purge_tenant()`
+
 ## Project Structure
-> Reflects branch `vq-402` = main + VQ-402 (PR #16). Other branches add their
-> own files — see `STATE.md`.
+> Reflects branch `vq-403` = main + VQ-403 (PR #17), with VQ-402 (PR #16) files
+> marked `[VQ-402]` — they live on `vq-402`, not this branch, until merge.
+> Branch-specific notes: `STATE.md`.
 
 ```
 app/
@@ -199,7 +224,8 @@ app/
   config.py          — Settings (pydantic-settings)
   database.py        — Async SQLAlchemy engine, session, Base + set_tenant_context
   main.py            — FastAPI app with routers
-  retention.py       — python -m app.retention — per-tenant audit/conversation purge
+  retention.py       — python -m app.retention — per-tenant audit/conversation purge [VQ-402]
+  offboard_purge.py  — python -m app.offboard_purge — purge grace-expired offboarded tenants
   auth/
     __init__.py
     password.py      — bcrypt hash/verify + strength validation
@@ -209,28 +235,31 @@ app/
   models/
     __init__.py
     base.py
-    tenant.py        — Tenant model (incl. retention_days)
+    tenant.py        — Tenant model (incl. retention_days [VQ-402], VQ-403 offboard columns)
     user.py          — User model
     session.py       — Session model (token tracking, revocation, tenant_id)
     document.py      — Document model
     invite.py        — Invite model
     audit_log.py     — AuditLog model
+    deletion_report.py — DeletionReport model (platform-level, no tenant scoping)
   routes/
     __init__.py
     auth.py          — Login, refresh, logout endpoints
     documents.py     — Document CRUD, preview, download, usage
-    admin.py         — Tenant lifecycle (create/suspend/reactivate/invite/audit) — super_admin only
+    admin.py         — Tenant lifecycle (create/suspend/reactivate/invite/audit/offboard/
+                       cancel-offboarding/deletion-reports) — super_admin only
     invite.py        — POST /invite/accept — public invite acceptance
-    audit.py         — GET /audit/export — tenant audit trail export
+    audit.py         — GET /audit/export — tenant audit trail export [VQ-402]
   schemas/
     __init__.py
     auth.py          — LoginRequest, TokenResponse, RefreshRequest, MessageResponse
-    tenant.py        — TenantCreate, TenantResponse, TenantStatus
+    tenant.py        — TenantCreate, TenantResponse, TenantStatus,
+                       TenantOffboardRequest, DeletionReportResponse
     user.py          — UserCreate, UserResponse
     document.py      — DocumentResponse, DocumentListResponse, StorageUsageResponse
   services/
-    storage.py       — File save/delete with tenant isolation
-    audit.py         — write_audit_log — single fail-closed audit writer
+    storage.py       — File save/delete with tenant isolation + purge_tenant_storage (VQ-403)
+    audit.py         — write_audit_log — single fail-closed audit writer [VQ-402]
 tests/
   __init__.py
   conftest.py        — DB fixtures (async engine, session, db_conn, app_db_conn,
@@ -244,7 +273,8 @@ tests/
   test_permissions.py — 21 tests for VQ-106
   test_tenant_lifecycle.py — 21 tests for VQ-107
   test_isolation_suite.py — VQ-110 cross-tenant suite + route coverage guard
-  test_audit_retention.py — 22 tests for VQ-402
+  test_audit_retention.py — 22 tests for VQ-402 [VQ-402]
+  test_offboarding.py — 18 tests for VQ-403 (step-up, grace, purge must-prove, guards)
 alembic/
   env.py
   versions/
@@ -256,7 +286,9 @@ alembic/
     004_tenant_lifecycle.py — Invites, audit_logs, storage_quota_mb
     005_invite_code_lookup.py — Invite code RLS policy, audit actor_role text, tenants grant
     006_sessions_tenant_nullable.py — sessions.tenant_id nullable (super-admin sessions)
-    007_audit_retention.py — VQ-402: retention_days, audit REVOKE, purge function, index
+    007_audit_retention.py — VQ-402: retention_days, audit REVOKE, purge function, index [VQ-402]
+    007_offboarding.py — VQ-403: offboard columns, deletion_reports, purge_tenant()
+                         (NOTE: second head vs 007_audit_retention — re-parent/merge at integration)
 .github/
   CHECKLIST.md       — Review checklist and common mistakes
   workflows/

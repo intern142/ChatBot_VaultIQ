@@ -134,7 +134,7 @@ Consequences (important, do not rediscover):
   `vq-201-tenant-upload` branch also adds migrations descending from 006. Merging both
   creates two alembic heads — a merge migration will be needed at that point.
 
-## VQ-402 — Audit trail, compliance export, retention (current)
+## VQ-402 — Audit trail, compliance export, retention
 **Branch:** `vq-402` · **PR:** #16 · **Test DB:** `vaultiq_vq402` (port 5433) — dedicated DB,
 migrations 001→007, shared `vaultiq` DB left untouched.
 
@@ -166,6 +166,42 @@ migrations 001→007, shared `vaultiq` DB left untouched.
 
 **Caveat:** live uvicorn ran as `vaultiq` superuser (Known Defect #1); RLS/immutability
 proven via separate direct `vaultiq_app` connections (Known Defects #1/#2 out of scope).
+
+## VQ-403 — Tenant offboarding and full purge
+**Branch:** `vq-403` (cut from `main` @ `161eb6f` by user instruction) · **PR:** #17 ·
+**Test DB:** `vaultiq_vq403` (port 5433) — dedicated DB, migrations 001→007 + roundtrip.
+
+**Gates:** 1 ✅ (`APPROACH_VQ403.md`, approved) · 2 ✅ · 3 ✅ (155 passed) ·
+4 ✅ (`VQ403_SELF_REVIEW.md`) · 5 ⏳ (PR #17) · 6 ✅ (evidence in PR #17 comment
+`#issuecomment-6058847994`) · 7 ⏳ (Friday demo)
+
+**Gate 6 evidence (PR #17 comment):** 32 checks on live uvicorn (PID 11728, stopped after)
+vs fresh `vaultiq_vq403` — full flow: super-admin seed → create/invite/accept → real doc
+upload on disk → client_admin offboard 403 → wrong-pw step-up 403 (tenant unchanged) →
+offboard 200 (`purge_after` +7d) → sessions=0, login 403, old token 401 → cancel + re-login
+200 → offboard again → grace backdated → real CLI `python -m app.offboard_purge` exit 0 →
+report via API → DB identity sweep (users/sessions/invites/audit_logs/documents all 0) +
+disk sweep (storage dir gone) + tombstone `purged` + exactly 1 platform survivor.
+
+**Commits on `vq-403`:**
+- `f587e11` cherry-pick DOCS (AGENTS/STATE restructure, conflict resolved)
+- `bae1a6a` migration `007_offboarding` (grace columns, `deletion_reports`,
+  `purge_tenant(uuid)` SECURITY DEFINER with to_regclass+tenant_id-column guard) + models + schemas
+- `e2c8d59` `PATCH …/offboard` + `PATCH …/cancel-offboarding` + `GET /admin/deletion-reports[/{id}]`
+  + ROLE_MATRIX + isolation manifest
+- `a6bbce7` `app/offboard_purge.py` CLI + `purge_tenant_storage()` in `app/services/storage.py`
+- `3f9c873` + `0652f49` `tests/test_offboarding.py` — 18 tests (must-prove: zero records/files
+  after purge, other tenant untouched; guard-branch test creates+drops real `text_chunks`/`cached_answers`)
+- `0afe66e` `VQ403_SELF_REVIEW.md` · `75b2e0c` state · `c2f32aa` Gate 6 state
+
+**Key facts:**
+- Audit uses `app/routes/admin.py` local `write_audit_log` (VQ-402's `services/audit.py`
+  not on this branch); switch at rebase when PR #16 merges
+- `deletion_reports`: no RLS, no `vaultiq_app` grant — super_admin only, outside tenant,
+  sole survivor of purge; `backup_flag={"state":"eligible_for_expiry","flagged_at":…}`
+- Grace validated inside `purge_tenant()` (no API purge endpoint); state conflicts → **409**
+- AGENTS.md reference (endpoints, tables, RLS, structure, decisions) updated this session
+  **by explicit user request** — one-time; the "never edit AGENTS.md" rule still stands
 
 ## Known Defects (must be fixed before VQ-202)
 1. **The test suite (and CI) run as `vaultiq`, which is `rolsuper = t, rolbypassrls = t`.** Every
@@ -200,7 +236,7 @@ proven via separate direct `vaultiq_app` connections (Known Defects #1/#2 out of
 Sprint 1: VQ-101 ✅ → VQ-105 ✅ → VQ-103 ✅ → VQ-104 ✅
 Sprint 2: VQ-102 ✅ → VQ-106 ✅ → VQ-107 ✅ → VQ-110 ✅
 Sprint 3: VQ-201 → VQ-202 → VQ-203 → VQ-204
-Sprint 4: VQ-402 (current) → VQ-403
+Sprint 4: VQ-402 (PR #16, Gates 5/7 ⏳) → VQ-403 (current, PR #17, Gates 5/7 ⏳)
 ```
 
 ## Sprint 2 / Week 2 Plan (21–25 Sep)
