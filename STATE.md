@@ -41,8 +41,9 @@ Consequences (important, do not rediscover):
    CLI smoke test green (`%TEMP%\opencode\vq403_purge_smoke.py`).
 4. ~~Gate 4: self-review~~ → `VQ403_SELF_REVIEW.md` written (all 5 ACs + both
    must-proves walked).
-5. **Next: commit self-review + this state update, push, open PR → Gate 5
-   (human review) ⏳.**
+5. **~~Open PR~~ done → Gate 5 (human review) ⏳.** PR #17:
+   https://github.com/intern142/ChatBot_VaultIQ/pull/17 (vq-403 → main).
+   Post Gate 3/4 evidence there if asked.
 6. Gate 6: live container verify — rebuild, uvicorn, exercise offboard →
    backdate → purge → report on live system, paste evidence on PR ⏳
 7. Gate 7: Friday demo ⏳
@@ -66,7 +67,7 @@ Consequences (important, do not rediscover):
   Shared `vaultiq` DB is off-limits; `vaultiq_vq402` belongs to VQ-402's branch.
 - Live-verify pattern: `uvicorn app.main:app --host 127.0.0.1 --port 8000`
   with those env vars; scratch scripts go in `%TEMP%\opencode`, not the repo.
-- GH CLI authenticated as intern142; PR #16 = VQ-402.
+- GH CLI authenticated as intern142; PR #16 = VQ-402, PR #17 = VQ-403.
 
 ---
 
@@ -114,7 +115,8 @@ Consequences (important, do not rediscover):
 - Current branch: **`vq-403`** (cut from `main` @ `161eb6f` by user instruction;
   see Resume Here for VQ-402 integration plan)
 - Current task: **VQ-403** — Tenant offboarding and full purge
-  (Gates 1–4 ✅ · Gate 5 review + Gate 6 live verify + Gate 7 demo ⏳)
+  (Gates 1–4 ✅ · PR #17 open: https://github.com/intern142/ChatBot_VaultIQ/pull/17
+  · Gate 5 review + Gate 6 live verify + Gate 7 demo ⏳)
 - Test suite on `vq-403`: **155 passed** on DB `vaultiq_vq403` (this branch's suite)
 - Previous story: **VQ-402** — Audit/export/retention, PR #16 open (Gates 1-4, 6 ✅;
   Gate 5 review + Gate 7 demo pending), branch `vq-402`
