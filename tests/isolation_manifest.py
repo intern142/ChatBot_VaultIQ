@@ -39,6 +39,12 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/admin/tenants/{tenant_id}/settings"),
     ("PATCH", "/admin/tenants/{tenant_id}/settings"),
     ("POST", "/admin/tenants/{tenant_id}/settings/logo"),
+
+    # Admin Platform — super_admin only (platform-wide, metadata only)
+    ("GET", "/admin/platform/overview"),
+    ("GET", "/admin/platform/overview/{tenant_id}"),
+    ("GET", "/admin/platform/health"),
+    ("GET", "/admin/platform/stats"),
 }
 
 

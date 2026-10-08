@@ -57,6 +57,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
 
     # Public tenant lookup — no auth
     ("GET", "/tenants/{short_code}/public"): {"super_admin", "client_admin", "employee"},
+
+    # Admin Platform — super_admin only (platform-wide, metadata only)
+    ("GET", "/admin/platform/overview"): {"super_admin"},
+    ("GET", "/admin/platform/overview/{tenant_id}"): {"super_admin"},
+    ("GET", "/admin/platform/health"): {"super_admin"},
+    ("GET", "/admin/platform/stats"): {"super_admin"},
 }
 
 
