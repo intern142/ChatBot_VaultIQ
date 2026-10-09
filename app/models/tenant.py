@@ -67,6 +67,9 @@ class Tenant(Base):
     settings: Mapped[Optional['TenantSettings']] = relationship(
         'TenantSettings', back_populates='tenant', cascade="all, delete-orphan", uselist=False
     )
+    answer_cache_entries: Mapped[List['AnswerCache']] = relationship(
+        'AnswerCache', back_populates='tenant', cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Tenant(id={self.id}, short_code={self.short_code}, name={self.name})>"

@@ -3,6 +3,8 @@ from app.routes.auth import router as auth_router
 from app.routes.documents import router as documents_router
 from app.routes.admin import router as admin_router
 from app.routes.invite import router as invite_router
+from app.routes.tenant import router as tenant_router
+from app.routes.public import router as public_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.users import router as users_router
 from app.routes.feedback import router as feedback_router
@@ -21,6 +23,8 @@ app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(admin_router)
 app.include_router(invite_router)
+app.include_router(tenant_router)
+app.include_router(public_router)
 app.include_router(dashboard_router)
 app.include_router(users_router)
 app.include_router(feedback_router)

@@ -5,9 +5,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File
 from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+import magic
 
 from sqlalchemy.exc import IntegrityError
 
@@ -33,6 +35,12 @@ from app.schemas.tenant import (
     AuditLogResponse,
     DeletionReportResponse,
 )
+from app.schemas.tenant_settings import (
+    TenantSettingsResponse,
+    TenantSettingsUpdateSuperAdmin,
+    LogoUploadResponse,
+)
+from app.services.tenant_settings import TenantSettingsService
 from app.config import get_settings
 from app.services.audit import write_audit_log
 
@@ -451,6 +459,91 @@ async def get_audit_log(
     )
     logs = result.scalars().all()
     return logs
+
+
+@router.get("/tenants/{tenant_id}/settings", response_model=TenantSettingsResponse)
+async def get_tenant_settings(
+    tenant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-304: Get all settings for a tenant (super_admin)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    ts = await TenantSettingsService.get_settings(db, tenant_id)
+    if not ts:
+        return TenantSettingsResponse(
+            tenant_id=tenant_id,
+            display_name=None,
+            logo_path=None,
+            accent_colour=None,
+            not_found_message=None,
+            allowed_upload_formats=None,
+            conversation_retention_days=None,
+            updated_by=None,
+            updated_at=tenant.created_at,
+        )
+    return ts
+
+
+@router.patch("/tenants/{tenant_id}/settings", response_model=TenantSettingsResponse)
+async def update_tenant_settings(
+    tenant_id: UUID,
+    request: TenantSettingsUpdateSuperAdmin,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-304: Update tenant settings (super_admin can change everything incl. storage_quota_mb)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    await set_tenant_context(db, str(tenant_id))
+
+    payload = request.model_dump(exclude_unset=True)
+    ts = await TenantSettingsService.update_settings(
+        db=db,
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        is_super_admin=True,
+        payload=payload,
+    )
+    return ts
+
+
+@router.post("/tenants/{tenant_id}/settings/logo", response_model=LogoUploadResponse)
+async def upload_tenant_logo(
+    tenant_id: UUID,
+    file: bytes = File(...),
+    filename: str = "logo.png",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """VQ-304: Upload tenant logo (super_admin)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    await set_tenant_context(db, str(tenant_id))
+
+    ts = await TenantSettingsService.update_settings(
+        db=db,
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        is_super_admin=True,
+        payload={},
+        logo_file=file,
+        logo_filename=filename,
+    )
+    return LogoUploadResponse(
+        path=ts.logo_path,
+        size_bytes=len(file),
+        mime_type=magic.from_buffer(file, mime=True),
+    )
 
 
 @router.get("/deletion-reports", response_model=list[DeletionReportResponse])

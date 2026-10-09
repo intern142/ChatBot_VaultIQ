@@ -90,6 +90,7 @@ class Document(Base):
     tenant: Mapped['Tenant'] = relationship('Tenant', back_populates='documents')
     uploader: Mapped['User'] = relationship('User', back_populates='documents', foreign_keys=[uploaded_by])
     chunks: Mapped[list['DocumentChunk']] = relationship('DocumentChunk', back_populates='document', cascade='all, delete-orphan')
+    answer_cache_entries: Mapped[list['AnswerCache']] = relationship('AnswerCache', back_populates='document', cascade='all, delete-orphan')
 
     __table_args__ = (
         Index('ix_documents_tenant', 'tenant_id', 'created_at'),
