@@ -133,25 +133,31 @@ def upgrade() -> None:
     # Chunk + embedding store. Created here rather than lazily from the worker:
     # vaultiq_app has no CREATE on schema public, so DDL from the application
     # fails outright, and schema changes belong in a revision regardless.
+    # Idempotent: 010_search_index (VQ-204) may have already created this table
+    # (partitioned). If it exists, skip creation but ensure grants/policies match.
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    op.create_table(
-        'document_chunks',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
-        sa.Column('tenant_id', UUID(as_uuid=True), sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('document_id', UUID(as_uuid=True), sa.ForeignKey('documents.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('chunk_index', sa.Integer, nullable=False),
-        sa.Column('content', sa.Text, nullable=False),
-        sa.Column('embedding', Vector(384), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('now()')),
-        sa.UniqueConstraint('document_id', 'chunk_index', name='uq_document_chunks_document_index'),
-    )
-    op.create_index(
-        'ix_document_chunks_tenant_document',
-        'document_chunks',
-        ['tenant_id', 'document_id'],
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if not inspector.has_table('document_chunks'):
+        op.create_table(
+            'document_chunks',
+            sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+            sa.Column('tenant_id', UUID(as_uuid=True), sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('document_id', UUID(as_uuid=True), sa.ForeignKey('documents.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('chunk_index', sa.Integer, nullable=False),
+            sa.Column('content', sa.Text, nullable=False),
+            sa.Column('embedding', Vector(384), nullable=True),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('now()')),
+            sa.UniqueConstraint('document_id', 'chunk_index', name='uq_document_chunks_document_index'),
+        )
+        op.create_index(
+            'ix_document_chunks_tenant_document',
+            'document_chunks',
+            ['tenant_id', 'document_id'],
+        )
     op.execute("ALTER TABLE document_chunks ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE document_chunks FORCE ROW LEVEL SECURITY")
+    op.execute("DROP POLICY IF EXISTS tenant_isolation ON document_chunks")
     op.execute("""
         CREATE POLICY tenant_isolation ON document_chunks
         FOR ALL TO vaultiq_app
