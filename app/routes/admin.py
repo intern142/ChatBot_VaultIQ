@@ -24,6 +24,7 @@ from app.schemas.tenant import (
     TenantCreate,
     TenantResponse,
     TenantListResponse,
+    TenantPermissionsUpdate,
     InviteCreate,
     InviteResponse,
     AuditLogResponse,
@@ -200,6 +201,57 @@ async def reactivate_tenant(
         target_type="tenant",
         target_id=tenant.id,
         details={},
+    )
+
+    await db.commit()
+    await db.refresh(tenant)
+    return tenant
+
+
+@router.patch("/tenants/{tenant_id}/permissions", response_model=TenantResponse)
+async def update_tenant_permissions(
+    tenant_id: UUID,
+    request: TenantPermissionsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Grant or revoke delegated permissions for a tenant's Client Admin.
+
+    can_add_users:      allow the Client Admin to directly create user accounts.
+    can_create_tenants: allow the Client Admin to create new tenants and set up
+                        their first Client Admin.
+    """
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Set tenant context so the audit entry passes RLS even under vaultiq_app
+    await set_tenant_context(db, str(tenant_id))
+
+    changes: dict[str, Any] = {}
+    if request.can_add_users is not None:
+        tenant.can_add_users = request.can_add_users
+        changes["can_add_users"] = request.can_add_users
+    if request.can_create_tenants is not None:
+        tenant.can_create_tenants = request.can_create_tenants
+        changes["can_create_tenants"] = request.can_create_tenants
+
+    if not changes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update")
+
+    await db.flush()
+
+    await write_audit_log(
+        db=db,
+        tenant_id=tenant.id,
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="update_tenant_permissions",
+        target_type="tenant",
+        target_id=tenant.id,
+        details=changes,
     )
 
     await db.commit()

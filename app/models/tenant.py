@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List
-from sqlalchemy import String, DateTime, Enum, Integer, func
+from typing import List, Optional
+from sqlalchemy import String, DateTime, Enum, Integer, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -23,6 +23,13 @@ class Tenant(Base):
         default="active",
     )
     storage_quota_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=2048)
+    can_add_users: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    can_create_tenants: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

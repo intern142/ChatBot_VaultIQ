@@ -40,7 +40,13 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/admin/tenants/{tenant_id}/suspend"): {"super_admin"},
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"): {"super_admin"},
     ("POST", "/admin/tenants/{tenant_id}/invite"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/permissions"): {"super_admin"},
     ("GET", "/admin/tenants/{tenant_id}/audit"): {"super_admin"},
+
+    # Client-admin delegated actions (client_admin only, super_admin denied)
+    ("POST", "/client/users"): {"client_admin"},
+    ("POST", "/client/tenants"): {"client_admin"},
+    ("POST", "/client/tenants/{tenant_id}/first-admin"): {"client_admin"},
 }
 
 

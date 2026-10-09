@@ -43,6 +43,9 @@ class TenantResponse(BaseModel):
     name: str
     status: TenantStatus
     storage_quota_mb: Optional[int]
+    can_add_users: bool
+    can_create_tenants: bool
+    created_by_user_id: Optional[UUID]
     created_at: datetime
     updated_at: datetime
 
@@ -55,8 +58,34 @@ class TenantListResponse(BaseModel):
     name: str
     status: TenantStatus
     storage_quota_mb: Optional[int]
+    can_add_users: bool
+    can_create_tenants: bool
+    created_by_user_id: Optional[UUID]
     created_at: datetime
     updated_at: datetime
+
+
+class TenantPermissionsUpdate(BaseModel):
+    can_add_users: Optional[bool] = None
+    can_create_tenants: Optional[bool] = None
+
+
+class ClientUserCreate(BaseModel):
+    email: EmailStr = Field(..., max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: UserRole = UserRole.employee
+
+    @field_validator("role")
+    @classmethod
+    def not_super_admin(cls, v: UserRole) -> UserRole:
+        if v == UserRole.super_admin:
+            raise ValueError("Cannot create a super admin user")
+        return v
+
+
+class ClientFirstAdminCreate(BaseModel):
+    email: EmailStr = Field(..., max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class TenantSuspendRequest(BaseModel):

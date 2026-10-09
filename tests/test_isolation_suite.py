@@ -15,7 +15,7 @@ from tests.isolation_manifest import ISOLATION_COVERED_ROUTES, normalize_path
 
 def test_route_coverage_guard():
     """Every tenant-scoped route in the app must be listed in ISOLATION_COVERED_ROUTES."""
-    tenant_scoped_prefixes = ("/documents", "/admin", "/auth/refresh", "/auth/logout", "/invite/accept")
+    tenant_scoped_prefixes = ("/documents", "/admin", "/client", "/auth/refresh", "/auth/logout", "/invite/accept")
     tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}

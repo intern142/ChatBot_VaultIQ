@@ -28,7 +28,13 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/suspend"),
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
+    ("PATCH", "/admin/tenants/{tenant_id}/permissions"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
+
+    # Client-admin delegated actions — client_admin only
+    ("POST", "/client/users"),
+    ("POST", "/client/tenants"),
+    ("POST", "/client/tenants/{tenant_id}/first-admin"),
 }
 
 
