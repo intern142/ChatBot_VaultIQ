@@ -63,3 +63,19 @@ async def apply_token_context(session: AsyncSession, payload: dict) -> None:
     else:
         # Super admin: no tenant context
         await clear_tenant_context(session)
+
+
+async def set_platform_context(session: AsyncSession) -> None:
+    """Set platform access context for super_admin (no tenant)."""
+    await session.execute(
+        text("SELECT set_config('app.platform_access', 'on', true)")
+    )
+    await clear_tenant_context(session)
+
+
+async def set_reset_code_context(session: AsyncSession, code_hash: str) -> None:
+    """Set reset code context for password reset lookup."""
+    await session.execute(
+        text("SELECT set_config('app.reset_code_hash', :code_hash, true)"),
+        {"code_hash": code_hash},
+    )
