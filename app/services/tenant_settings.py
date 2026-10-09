@@ -29,6 +29,8 @@ MAX_LOGO_SIZE = 500 * 1024
 MAX_LOGO_DIMENSION = 512
 # Allowed image MIME types
 ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp"}
+# System-wide allowed document formats (from settings)
+SYSTEM_ALLOWED_FORMATS = settings.ALLOWED_MIME_TYPES.split(",")
 
 
 class TenantSettingsService:

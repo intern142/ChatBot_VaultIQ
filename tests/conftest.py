@@ -80,11 +80,6 @@ def use_test_app_database():
         app.dependency_overrides[get_db] = previous
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the whole suite."""
-
-
 @pytest.fixture(scope="function", autouse=True)
 def truncate_tables():
     """Ensure clean database state for each test function."""

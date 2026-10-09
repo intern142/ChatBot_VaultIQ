@@ -73,3 +73,24 @@ def delete_document_file(tenant_id: uuid.UUID, document_id: uuid.UUID, stored_fi
 def get_file_size(tenant_id: uuid.UUID, document_id: uuid.UUID, stored_filename: str) -> int:
     file_path = get_document_file_path(tenant_id, document_id, stored_filename)
     return file_path.stat().st_size if file_path.exists() else 0
+
+
+def purge_tenant_storage(tenant_id: uuid.UUID) -> dict:
+    """VQ-403: Remove the tenant's entire storage directory.
+
+    Idempotent: a missing directory returns zero counts. Returns the number
+    of files and bytes that existed on disk immediately before removal.
+    """
+    tenant_dir = get_tenant_storage_path(tenant_id)
+    if not tenant_dir.exists():
+        return {"files_deleted": 0, "bytes_deleted": 0}
+
+    files_deleted = 0
+    bytes_deleted = 0
+    for path in tenant_dir.rglob("*"):
+        if path.is_file():
+            files_deleted += 1
+            bytes_deleted += path.stat().st_size
+
+    shutil.rmtree(tenant_dir)
+    return {"files_deleted": files_deleted, "bytes_deleted": bytes_deleted}

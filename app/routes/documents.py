@@ -34,14 +34,15 @@ from app.services.storage import (
     save_uploaded_file,
     delete_document_file,
     get_document_file_path,
+    UploadTooLargeError,
 )
 from app.services.file_detection import detect_document_mime
-from app.services.storage import UploadTooLargeError
 from app.services.ocr import (
     DocumentExtractionError,
     OcrUnavailableError,
     extract_document_text,
 )
+from app.services.audit import write_audit_log
 from app.config import get_settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -121,6 +122,168 @@ async def check_quota(db: AsyncSession, tenant_id: uuid.UUID, additional_bytes: 
         )
 
 
+@router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
+async def upload_document(
+    file: UploadFile = File(...),
+    category: str = Form(...),
+    replaces: str | None = Form(
+        None,
+        description=(
+            "Id of an existing document this upload supersedes. When given, the "
+            "new file joins that document's version group as the next pending "
+            "version. When omitted, a new logical document is started."
+        ),
+    ),
+    # VQ-201 AC5: employees cannot upload. Kept from the VQ-201 side of this
+    # merge rather than VQ-202's ("client_admin", "employee"), which predates it.
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user, tenant_id_str = current_user_tenant
+    tenant_id = uuid.UUID(tenant_id_str)
+
+    # Validate category
+    valid_categories = {"policy", "hr", "sop", "process", "other"}
+    if category not in valid_categories:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid category. Must be one of: {', '.join(sorted(valid_categories))}"
+        )
+
+    # Validate file size (fast check from header)
+    validate_file_size(file)
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required"
+        )
+
+# VQ-201: judge type from content, not the declared header. VQ-202: work out
+    # the version group before anything is written, so a bad `replaces` id costs
+    # no disk write.
+    detected_mime = validate_mime_type(file)
+    tenant_uuid = tenant_id
+
+    group_id, version_number, supersedes_id = await _resolve_version_target(
+        db, tenant_uuid, replaces
+    )
+
+    document_id = uuid.uuid4()
+    extension = mimetypes.guess_extension(detected_mime) or ".bin"
+    stored_filename = f"{document_id}{extension}"
+
+    file_saved = False
+    try:
+        file_path = save_uploaded_file(
+            file.file,
+            tenant_uuid,
+            document_id,
+            stored_filename,
+            MAX_FILE_SIZE
+        )
+        file_saved = True
+        actual_size = file_path.stat().st_size
+        if actual_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
+            )
+        extraction = await asyncio.to_thread(extract_document_text, file_path, detected_mime)
+        await check_quota(db, tenant_uuid, actual_size)
+
+        document = Document(
+            id=document_id,
+            tenant_id=tenant_uuid,
+            original_filename=file.filename,
+            stored_filename=stored_filename,
+            mime_type=detected_mime,
+            size_bytes=actual_size,
+            uploaded_by=current_user.id,
+            category=category,
+            extracted_text=extraction.text,
+            extraction_method=extraction.method,
+            extraction_status=extraction.status,
+            extraction_page_count=extraction.page_count,
+            extraction_truncated=extraction.truncated,
+            document_group_id=group_id,
+            version_number=version_number,
+            supersedes_id=supersedes_id,
+            status="pending",
+        )
+        db.add(document)
+        await db.flush()
+        # SET LOCAL is transaction-scoped, so commit discarded the context and the
+        # refresh would run with none. Under RLS that reads zero rows and
+        # SQLAlchemy raises "Could not refresh instance". Re-establish it first.
+        await set_tenant_context(db, str(tenant_uuid))
+        await db.refresh(document)
+
+# Enqueue indexing job (will be processed when extraction is available)
+        # Must be in the same transaction as the document so RLS context applies.
+        indexing_job = IndexingJob(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            status='pending',
+            attempts=0,
+        )
+        db.add(indexing_job)
+
+        # Audit log for document upload
+        await write_audit_log(
+            db=db,
+            tenant_id=tenant_id,
+            actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            action="upload_document",
+            target_type="document",
+            target_id=document_id,
+            details={
+                "filename": file.filename,
+                "mime_type": detected_mime,
+                "size_bytes": actual_size,
+            },
+        )
+
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_uuid, document_id, stored_filename)
+        raise
+    except UploadTooLargeError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_uuid, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
+        ) from exc
+    except OcrUnavailableError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_uuid, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Offline text extraction is unavailable",
+        ) from exc
+    except DocumentExtractionError as exc:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_uuid, document_id, stored_filename)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Document text extraction failed",
+        ) from exc
+    except Exception:
+        await db.rollback()
+        if file_saved:
+            delete_document_file(tenant_uuid, document_id, stored_filename)
+        raise
+
+    return document
+
+
 async def _resolve_version_target(
     db: AsyncSession,
     tenant_id: uuid.UUID,
@@ -167,145 +330,6 @@ async def _resolve_version_target(
     next_version = (result.scalar() or 0) + 1
 
     return target.document_group_id, next_version, target.id
-
-
-@router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
-async def upload_document(
-    file: UploadFile = File(...),
-    category: str = Form(...),
-    replaces: str | None = Form(
-        None,
-        description=(
-            "Id of an existing document this upload supersedes. When given, the "
-            "new file joins that document's version group as the next pending "
-            "version. When omitted, a new logical document is started."
-        ),
-    ),
-    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    current_user, tenant_id_str = current_user_tenant
-    tenant_id = uuid.UUID(tenant_id_str)
-
-    # Validate category
-    valid_categories = {"policy", "hr", "sop", "process", "other"}
-    if category not in valid_categories:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid category. Must be one of: {', '.join(sorted(valid_categories))}"
-        )
-
-    # Validate file size (fast check from header)
-    validate_file_size(file)
-
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Filename is required"
-        )
-
-    # Validate MIME type from CONTENT (authoritative check)
-    detected_mime = validate_mime_type(file)
-
-    # Resolve version target (new group or existing group as next version)
-    group_id, version_number, supersedes_id = await _resolve_version_target(
-        db, tenant_id, replaces
-    )
-
-    # Check quota BEFORE saving file
-    await check_quota(db, tenant_id, file.size or 0)
-
-    document_id = uuid.uuid4()
-    extension = mimetypes.guess_extension(detected_mime) or ".bin"
-    stored_filename = f"{document_id}{extension}"
-
-    file_saved = False
-    document = None
-    try:
-        file_path = save_uploaded_file(
-            file.file,
-            tenant_id,
-            document_id,
-            stored_filename,
-            MAX_FILE_SIZE
-        )
-        file_saved = True
-        actual_size = file_path.stat().st_size
-        if actual_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
-            )
-        extraction = await asyncio.to_thread(extract_document_text, file_path, detected_mime)
-
-        document = Document(
-            id=document_id,
-            tenant_id=tenant_id,
-            original_filename=file.filename,
-            stored_filename=stored_filename,
-            mime_type=detected_mime,
-            size_bytes=actual_size,
-            uploaded_by=current_user.id,
-            category=category,
-            extracted_text=extraction.text,
-            extraction_method=extraction.method,
-            extraction_status=extraction.status,
-            extraction_page_count=extraction.page_count,
-            extraction_truncated=extraction.truncated,
-            document_group_id=group_id,
-            version_number=version_number,
-            supersedes_id=supersedes_id,
-            status="pending",
-        )
-        db.add(document)
-
-        # Enqueue processing job (idempotent by document_id + payload)
-        job = DocumentJob(
-            tenant_id=tenant_id,
-            document_id=document_id,
-            payload={"action": "index", "version": version_number},
-        )
-        db.add(job)
-
-        await db.flush()
-        await db.refresh(document)
-        await db.commit()
-    except HTTPException:
-        await db.rollback()
-        if file_saved:
-            delete_document_file(tenant_id, document_id, stored_filename)
-        raise
-    except UploadTooLargeError as exc:
-        await db.rollback()
-        if file_saved:
-            delete_document_file(tenant_id, document_id, stored_filename)
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB}MB"
-        ) from exc
-    except OcrUnavailableError as exc:
-        await db.rollback()
-        if file_saved:
-            delete_document_file(tenant_id, document_id, stored_filename)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Offline text extraction is unavailable",
-        ) from exc
-    except DocumentExtractionError as exc:
-        await db.rollback()
-        if file_saved:
-            delete_document_file(tenant_id, document_id, stored_filename)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Document text extraction failed",
-        ) from exc
-    except Exception:
-        await db.rollback()
-        if file_saved:
-            delete_document_file(tenant_id, document_id, stored_filename)
-        raise
-
-    return document
 
 
 @router.get("", response_model=DocumentListResponse)
@@ -485,7 +509,7 @@ async def delete_document(
     current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    _, tenant_id = current_user_tenant
+    current_user, tenant_id = current_user_tenant
 
     result = await db.execute(
         select(Document).where(
@@ -504,6 +528,21 @@ async def delete_document(
     # Delete file from disk
     delete_document_file(
         uuid.UUID(tenant_id), document_id, document.stored_filename
+    )
+
+    # Record the deletion on the trail before the row goes away
+    await write_audit_log(
+        db=db,
+        tenant_id=uuid.UUID(tenant_id),
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="delete_document",
+        target_type="document",
+        target_id=document_id,
+        details={
+            "filename": document.original_filename,
+            "size_bytes": document.size_bytes,
+        },
     )
 
     # Delete from database

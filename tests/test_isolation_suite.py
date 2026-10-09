@@ -19,12 +19,14 @@ def test_route_coverage_guard():
         "/documents",
         "/admin",
         "/users",
+        "/audit",
         "/auth/refresh",
         "/auth/logout",
         "/auth/reset-password",
         "/invite/accept",
+        "/search",
+        "/answers",
     )
-    tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
 
@@ -409,6 +411,150 @@ class TestUploadEndpoint:
         data = {"category": "policy"}
         resp = await make_request(async_client, "POST", "/documents", token_b_emp, files=files, data=data)
         assert resp.status_code == 403
+
+
+# ---- Manifest completeness verification ----
+
+class TestSearchEndpoints:
+    """Search endpoints - tenant users only."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_search_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Search with tenant A token should not return tenant B's results."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(async_client, "POST", "/search", token, json={"query": "test", "top_k": 10})
+        assert resp.status_code in (200, 404)
+        data = resp.json()
+        # Verify no cross-tenant leakage in response body
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_suggest_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Suggest with tenant A token should not return tenant B's suggestions."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(async_client, "GET", "/search/suggest?q=test", token)
+        assert resp.status_code in (200, 404)
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+
+class TestAnswerEndpoints:
+    """Answer endpoint (/answers) - tenant users only, no cross-tenant content."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("token_fixture,role", [
+        ("token_a_admin", "client_admin"),
+        ("token_a_emp", "employee"),
+        ("token_b_admin", "client_admin"),
+        ("token_b_emp", "employee"),
+    ])
+    async def test_answer_cross_tenant(
+        self, async_client, request, token_fixture, role, tenant_a_ids, tenant_b_ids
+    ):
+        """Answers from tenant A token must never surface tenant B content."""
+        token = request.getfixturevalue(token_fixture)
+        is_token_a = token_fixture.startswith("token_a")
+        other_tenant_id = tenant_b_ids["tenant_id"] if is_token_a else tenant_a_ids["tenant_id"]
+
+        resp = await make_request(
+            async_client, "POST", "/answers", token,
+            json={"question": "what is the test policy", "top_k": 10},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # never a random excerpt for an unanswered question, and never
+        # any cross-tenant content
+        assert data.get("routing") in ("answer", "partial", "no_answer")
+        assert_no_cross_tenant_leak(resp, other_tenant_id)
+
+    @pytest.mark.asyncio
+    async def test_answer_super_admin_denied(
+        self, async_client, super_admin_token
+    ):
+        """Super Admin must be denied (403) on /answers like all content routes."""
+        resp = await make_request(
+            async_client, "POST", "/answers", super_admin_token,
+            json={"question": "what is the test policy"},
+        )
+        assert resp.status_code == 403
+
+
+class TestAuditExport:
+    """GET /audit/export (VQ-402) — tenant comes only from the token."""
+
+    @pytest.mark.asyncio
+    async def test_export_contains_only_own_tenant_rows(
+        self, async_client, db_conn, token_a_admin, tenant_a, tenant_b
+    ):
+        """Tenant A's export must never contain tenant B rows or identifiers."""
+        import json as _json
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO audit_logs (tenant_id, actor_role, action, target_type, target_id, details) "
+            "VALUES (%s, 'system', 'a_row', 'tenant', %s, %s)",
+            (str(tenant_a["id"]), str(tenant_a["id"]), _json.dumps({"mark": "a_marker"})),
+        )
+        cur.execute(
+            "INSERT INTO audit_logs (tenant_id, actor_role, action, target_type, target_id, details) "
+            "VALUES (%s, 'system', 'b_row', 'tenant', %s, %s) RETURNING id",
+            (str(tenant_b["id"]), str(tenant_b["id"]), _json.dumps({"mark": "b_secret_marker"})),
+        )
+        b_row_id = str(cur.fetchone()[0])
+        db_conn.commit()
+        cur.close()
+
+        resp = await make_request(async_client, "GET", "/audit/export", token_a_admin)
+        assert resp.status_code == 200, resp.text
+        assert "b_secret_marker" not in resp.text, "Export leaked tenant B content"
+        assert b_row_id not in resp.text, "Export leaked tenant B row id"
+        assert_no_cross_tenant_leak(resp, str(tenant_b["id"]))
+
+        import csv as _csv
+        import io as _io
+        rows = list(_csv.DictReader(_io.StringIO(resp.text)))
+        assert rows, "Expected tenant A's rows"
+        for row in rows:
+            assert row["tenant_id"] == str(tenant_a["id"])
+
+    @pytest.mark.asyncio
+    async def test_export_denied_for_employees(self, async_client, token_a_emp, token_b_emp):
+        """Employees cannot export the audit trail."""
+        for token in (token_a_emp, token_b_emp):
+            resp = await make_request(async_client, "GET", "/audit/export", token)
+            assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_export_denied_for_super_admin(self, async_client, super_admin_token):
+        """Super Admin has no tenant of their own to export via this path."""
+        resp = await make_request(async_client, "GET", "/audit/export", super_admin_token)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_export_requires_token(self, async_client):
+        resp = await async_client.get("/audit/export")
+        assert resp.status_code in (401, 403)
 
 
 # ---- Manifest completeness verification ----

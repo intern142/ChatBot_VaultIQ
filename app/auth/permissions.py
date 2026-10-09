@@ -34,6 +34,11 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/documents/{document_id}/download"): {"client_admin", "employee"},
     ("DELETE", "/documents/{document_id}"): {"client_admin"},
 
+    # Search & answers — tenant users only (super admin DENIED)
+    ("POST", "/search"): {"client_admin", "employee"},
+    ("GET", "/search/suggest"): {"client_admin", "employee"},
+    ("POST", "/answers"): {"client_admin", "employee"},
+
     # Admin — super_admin only
     ("POST", "/admin/tenants"): {"super_admin"},
     ("GET", "/admin/tenants"): {"super_admin"},
@@ -52,6 +57,21 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
 
     # Public tenant lookup — no auth
     ("GET", "/tenants/{short_code}/public"): {"super_admin", "client_admin", "employee"},
+
+    # Admin Platform — super_admin only (platform-wide, metadata only)
+    ("GET", "/admin/platform/overview"): {"super_admin"},
+    ("GET", "/admin/platform/overview/{tenant_id}"): {"super_admin"},
+    ("GET", "/admin/platform/health"): {"super_admin"},
+    ("GET", "/admin/platform/stats"): {"super_admin"},
+
+    # Audit trail export — client_admin of their own tenant only
+    ("GET", "/audit/export"): {"client_admin"},
+
+    # Offboarding & deletion reports — super_admin only (VQ-403)
+    ("PATCH", "/admin/tenants/{tenant_id}/offboard"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/cancel-offboarding"): {"super_admin"},
+    ("GET", "/admin/deletion-reports"): {"super_admin"},
+    ("GET", "/admin/deletion-reports/{report_id}"): {"super_admin"},
 }
 
 
