@@ -7,5 +7,6 @@ from app.models.invite import Invite
 from app.models.audit_log import AuditLog
 from app.models.search import DocumentChunk, IndexingJob
 from app.models.answer_cache import AnswerCache
+from app.models.deletion_report import DeletionReport
 
-__all__ = ["Tenant", "User", "Document", "DocumentJob", "ProcessingStatus", "JobStatus", "Session", "Invite", "AuditLog", "DocumentChunk", "IndexingJob", "AnswerCache"]
+__all__ = ["Tenant", "User", "Document", "DocumentJob", "ProcessingStatus", "JobStatus", "Session", "Invite", "AuditLog", "DocumentChunk", "IndexingJob", "AnswerCache", "DeletionReport"]

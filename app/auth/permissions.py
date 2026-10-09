@@ -66,6 +66,12 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
 
     # Audit trail export — client_admin of their own tenant only
     ("GET", "/audit/export"): {"client_admin"},
+
+    # Offboarding & deletion reports — super_admin only (VQ-403)
+    ("PATCH", "/admin/tenants/{tenant_id}/offboard"): {"super_admin"},
+    ("PATCH", "/admin/tenants/{tenant_id}/cancel-offboarding"): {"super_admin"},
+    ("GET", "/admin/deletion-reports"): {"super_admin"},
+    ("GET", "/admin/deletion-reports/{report_id}"): {"super_admin"},
 }
 
 

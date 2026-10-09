@@ -47,6 +47,10 @@ class TenantResponse(BaseModel):
     retention_days: int
     created_at: datetime
     updated_at: datetime
+    # VQ-403: offboarding state (null unless offboarding has begun)
+    offboarded_at: Optional[datetime] = None
+    purge_after: Optional[datetime] = None
+    purged_at: Optional[datetime] = None
 
 
 class TenantListResponse(BaseModel):
@@ -68,6 +72,31 @@ class TenantSuspendRequest(BaseModel):
 
 class TenantReactivateRequest(BaseModel):
     pass  # No body needed, just the path param
+
+
+class TenantOffboardRequest(BaseModel):
+    """VQ-403: step-up identity re-confirmation before offboarding."""
+
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class DeletionReportResponse(BaseModel):
+    """VQ-403: deletion report — platform-level, stored outside the tenant."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    short_code: str
+    name: str
+    initiated_by: Optional[UUID]
+    initiated_at: datetime
+    purge_after: datetime
+    purged_at: datetime
+    grace_days: int
+    report: dict[str, Any]
+    backup_flag: dict[str, Any]
+    created_at: datetime
 
 
 class InviteCreate(BaseModel):
