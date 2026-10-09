@@ -88,10 +88,15 @@ def upgrade() -> None:
     op.execute("CREATE UNIQUE INDEX uq_documents_one_approved_per_group "
                "ON documents (document_group_id) WHERE status = 'approved'")
 
-    op.add_column(
-        "tenants",
-        sa.Column("knowledge_base_version", sa.Integer(), nullable=False, server_default="1"),
-    )
+    # Idempotent: 49371df05e77 (VQ-210) may have already added this column
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [c['name'] for c in inspector.get_columns('tenants')]
+    if 'knowledge_base_version' not in columns:
+        op.add_column(
+            "tenants",
+            sa.Column("knowledge_base_version", sa.Integer(), nullable=False, server_default="1"),
+        )
 
     # The documents policy was created by the VQ-104 migration as
     #   current_setting('app.current_tenant'::text)      <- no missing_ok
