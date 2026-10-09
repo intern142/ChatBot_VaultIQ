@@ -14,12 +14,17 @@ on:
       - vq-202-approval-versioning
       - vq-203
       - vq-301-password-reset
+      - vq-304
+      - vq-210-tenant-cache
+      - vq-402
+      - vq-403
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -38,6 +43,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install offline document runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng
+
+      - name: Build application image
+        run: docker build --tag vaultiq:test .
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -69,6 +82,8 @@ jobs:
           psql -h localhost -U vaultiq -d vaultiq -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'vaultiq_app') THEN CREATE ROLE vaultiq_app WITH LOGIN PASSWORD 'vaultiq_secret'; END IF; END \$\$;"
           psql -h localhost -U vaultiq -d vaultiq -c "GRANT USAGE ON SCHEMA public TO vaultiq_app;"
           psql -h localhost -U vaultiq -d vaultiq -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vaultiq_app;"
+          psql -h localhost -U vaultiq -d vaultiq -c "REVOKE UPDATE, DELETE ON audit_logs FROM vaultiq_app;"
+          psql -h localhost -U vaultiq -d vaultiq -c "REVOKE DELETE ON tenants FROM vaultiq_app;"
           psql -h localhost -U vaultiq -d vaultiq -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vaultiq_app;"
 
       - name: Run tests (as vaultiq_app, NOBYPASSRLS)
@@ -78,5 +93,6 @@ jobs:
           APP_DATABASE_URL: postgresql+asyncpg://vaultiq_app:vaultiq_secret@localhost:5432/vaultiq
           DATABASE_URL_SYNC: postgresql://vaultiq:vaultiq_secret@localhost:5432/vaultiq
           JWT_SECRET: test-secret
+          OCR_REQUIRED: "true"
         run: |
           python -m pytest tests/ -v --tb=short

@@ -24,6 +24,7 @@ This document lists every operation in VaultIQ and what each role may do with it
 | `/documents/{id}/preview` | GET | ❌ | ✅ | ✅ |
 | `/documents/{id}/download` | GET | ❌ | ✅ | ✅ |
 | `/documents/{id}` | DELETE | ❌ | ✅ | ❌ |
+| `/audit/export` | GET | ❌ | ✅ | ❌ |
 
 ## Rules
 
@@ -31,6 +32,7 @@ This document lists every operation in VaultIQ and what each role may do with it
 2. **Employees cannot** manage storage usage or delete documents
 3. **Unauthenticated users** can only access `/health` and `/auth/login`
 4. Adding a new endpoint **without** declaring its permissions in `app/auth/permissions.py` causes the router walk test to fail
+5. **Audit export** is scoped to the caller's own tenant from the token — there is no tenant id in the request (VQ-402)
 
 ## Enforcement
 
