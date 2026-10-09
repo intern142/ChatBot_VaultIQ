@@ -16,6 +16,7 @@ ISOLATION_COVERED_ROUTES = {
 
     # Documents — tenant users only (super_admin DENIED by permissions)
     ("POST", "/documents"),
+    ("POST", "/documents/bulk"),
     ("GET", "/documents"),
     ("GET", "/documents/usage"),
     ("GET", "/documents/{document_id}/preview"),

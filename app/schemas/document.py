@@ -36,3 +36,27 @@ class StorageUsageResponse(BaseModel):
     total_documents: int
     total_size_bytes: int
     total_size_mb: float
+
+
+class BulkFileResult(BaseModel):
+    """Outcome for one file in a bulk upload."""
+
+    filename: str
+    success: bool
+    document: Optional[DocumentResponse] = None
+    error: Optional[str] = None
+
+
+class BulkUploadResponse(BaseModel):
+    """Summary of a multi-file upload.
+
+    Each file is handled independently: a file that fails validation or storage
+    is reported in `results` with `success=False` and an `error`, while the rest
+    of the batch is still uploaded. The endpoint returns 200 once the batch has
+    been processed.
+    """
+
+    processed: int
+    created: int
+    failed: int
+    results: list[BulkFileResult]

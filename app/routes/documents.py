@@ -14,6 +14,8 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentListResponse,
     StorageUsageResponse,
+    BulkUploadResponse,
+    BulkFileResult,
 )
 from app.services.storage import (
     save_uploaded_file,
@@ -35,6 +37,7 @@ ALLOWED_MIME_TYPES = {
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_BULK_FILES = 10
 
 
 def validate_file(file: UploadFile) -> None:
@@ -97,6 +100,111 @@ async def upload_document(
     await db.refresh(document)
 
     return document
+
+
+@router.post("/bulk", response_model=BulkUploadResponse)
+async def upload_documents_bulk(
+    files: list[UploadFile] = File(...),
+    current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin", "employee")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload multiple documents in one request.
+
+    Each file is validated and stored independently, so one bad file does not
+    block the rest of the batch. Per-file failures are returned in `results`
+    with a human-readable `error`; successfully created files come back with a
+    full `DocumentResponse`.
+    """
+    current_user, tenant_id = current_user_tenant
+    tenant_uuid = uuid.UUID(tenant_id)
+    uploaded_by_id = current_user.id
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one file is required",
+        )
+
+    if len(files) > MAX_BULK_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Too many files. Maximum {MAX_BULK_FILES} files per bulk upload",
+        )
+
+    results: list[BulkFileResult] = []
+    created = 0
+
+    for file in files:
+        filename = file.filename or "unnamed_file"
+        document_id = uuid.uuid4()
+        stored_filename = f"{document_id}{mimetypes.guess_extension(file.content_type) or '.bin'}"
+        file_saved = False
+
+        try:
+            validate_file(file)
+
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Filename is required",
+                )
+
+            file_path = save_uploaded_file(file.file, tenant_uuid, document_id, stored_filename)
+            file_saved = True
+            actual_size = file_path.stat().st_size
+
+            document = Document(
+                id=document_id,
+                tenant_id=tenant_uuid,
+                original_filename=file.filename,
+                stored_filename=stored_filename,
+                mime_type=file.content_type or "application/octet-stream",
+size_bytes=actual_size,
+                uploaded_by=uploaded_by_id,
+            )
+            db.add(document)
+            await db.commit()
+            await db.refresh(document)
+
+            results.append(
+                BulkFileResult(
+                    filename=file.filename,
+                    success=True,
+                    document=document,
+                    error=None,
+                )
+            )
+            created += 1
+
+        except HTTPException as exc:
+            if file_saved:
+                delete_document_file(tenant_uuid, document_id, stored_filename)
+            await db.rollback()
+            results.append(
+                BulkFileResult(
+                    filename=filename,
+                    success=False,
+                    error=str(exc.detail),
+                )
+            )
+        except Exception:
+            if file_saved:
+                delete_document_file(tenant_uuid, document_id, stored_filename)
+            await db.rollback()
+            results.append(
+                BulkFileResult(
+                    filename=filename,
+                    success=False,
+                    error="Upload failed. Please try again.",
+                )
+            )
+
+    return BulkUploadResponse(
+        processed=len(files),
+        created=created,
+        failed=len(files) - created,
+        results=results,
+    )
 
 
 @router.get("", response_model=DocumentListResponse)
