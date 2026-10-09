@@ -27,6 +27,7 @@ def test_route_coverage_guard():
         "/search",
         "/answers",
     )
+    tenant_scoped_methods = {"GET", "POST", "PATCH", "DELETE"}
 
     covered = {(m.upper(), normalize_path(p)) for m, p in ISOLATION_COVERED_ROUTES}
 

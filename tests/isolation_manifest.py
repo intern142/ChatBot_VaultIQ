@@ -36,7 +36,8 @@ ISOLATION_COVERED_ROUTES = {
     ("PATCH", "/admin/tenants/{tenant_id}/reactivate"),
     ("POST", "/admin/tenants/{tenant_id}/invite"),
     ("GET", "/admin/tenants/{tenant_id}/audit"),
-<<<<<<< HEAD
+
+    # Admin tenant settings — super_admin only
     ("GET", "/admin/tenants/{tenant_id}/settings"),
     ("PATCH", "/admin/tenants/{tenant_id}/settings"),
     ("POST", "/admin/tenants/{tenant_id}/settings/logo"),
@@ -49,29 +50,15 @@ ISOLATION_COVERED_ROUTES = {
 
     # Audit trail export — client_admin of their own tenant (VQ-402)
     ("GET", "/audit/export"),
-=======
 
     # Offboarding & deletion reports — super_admin only (VQ-403)
     ("PATCH", "/admin/tenants/{tenant_id}/offboard"),
     ("PATCH", "/admin/tenants/{tenant_id}/cancel-offboarding"),
     ("GET", "/admin/deletion-reports"),
     ("GET", "/admin/deletion-reports/{report_id}"),
->>>>>>> vq-403
 }
 
 
 def normalize_path(path: str) -> str:
     """Normalize path params to manifest format."""
     return path
-    (GET, /dashboard/overview),
-    (GET, /dashboard/overview/30d),
-    (GET, /dashboard/documents),
-    (GET, /dashboard/users),
-    (GET, /dashboard/audit),
-    (GET, /dashboard/feedback),
-    (GET, /dashboard/knowledge-gaps),
-    (GET, /dashboard/export/documents),
-    (GET, /dashboard/export/users),
-    (GET, /dashboard/export/audit),
-    (GET, /dashboard/export/feedback),
-]
