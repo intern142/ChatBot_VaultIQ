@@ -9,6 +9,7 @@ from app.routes.feedback import router as feedback_router
 from app.routes.search import router as search_router
 from app.routes.answers import router as answers_router
 from app.routes.admin_dashboard import router as admin_dashboard_router
+from app.routes.audit import router as audit_router
 
 app = FastAPI(
     title="VaultIQ API",
@@ -26,6 +27,7 @@ app.include_router(feedback_router)
 app.include_router(search_router)
 app.include_router(answers_router)
 app.include_router(admin_dashboard_router)
+app.include_router(audit_router)
 
 
 @app.get("/health")

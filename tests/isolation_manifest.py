@@ -45,6 +45,9 @@ ISOLATION_COVERED_ROUTES = {
     ("GET", "/admin/platform/overview/{tenant_id}"),
     ("GET", "/admin/platform/health"),
     ("GET", "/admin/platform/stats"),
+
+    # Audit trail export — client_admin of their own tenant (VQ-402)
+    ("GET", "/audit/export"),
 }
 
 

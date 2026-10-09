@@ -30,6 +30,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
 )
 from app.schemas.tenant import TenantStatus
+from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -63,6 +64,7 @@ async def _reset_failed_logins(user: User, db: AsyncSession):
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     start = datetime.now(timezone.utc)
 
+    tenant: Tenant | None = None
     if request.organisation_code == "SUPER":
         # Platform rows carry tenant_id IS NULL and are invisible to the tenant
         # policy, so the platform context has to be set before the lookup, not
@@ -100,6 +102,20 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
             tenant = result.scalar_one_or_none()
             if tenant and tenant.status in (TenantStatus.suspended, TenantStatus.offboarding):
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "tenant_suspended",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
                 elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                 if elapsed < LOGIN_DELAY.total_seconds():
                     await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -110,6 +126,21 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         locked = await _check_lockout(user)
         if locked:
+            if user.tenant_id:
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "account_locked",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             if elapsed < LOGIN_DELAY.total_seconds():
                 await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -138,6 +169,21 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         if not verify_password(request.password, user.password_hash):
             await _record_failed_login(user, db)
+            if user.tenant_id:
+                await write_audit_log(
+                    db=db,
+                    tenant_id=user.tenant_id,
+                    actor_user_id=user.id,
+                    actor_role=user.role,
+                    action="failed_login",
+                    target_type="user",
+                    target_id=user.id,
+                    details={
+                        "reason": "wrong_password",
+                        "organisation_code": request.organisation_code,
+                    },
+                )
+                await db.commit()
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             if elapsed < LOGIN_DELAY.total_seconds():
                 await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -149,6 +195,25 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         await _reset_failed_logins(user, db)
 
     else:
+        # Known organisation code but no such user: attribute the failure to
+        # that tenant (internal, tenant-scoped trail — response stays uniform).
+        # An unresolvable organisation code (or SUPER) has no tenant to
+        # attribute to and is not recorded — see APPROACH_VQ402.md.
+        if tenant is not None:
+            await write_audit_log(
+                db=db,
+                tenant_id=tenant.id,
+                actor_user_id=None,
+                actor_role="unauthenticated",
+                action="failed_login",
+                target_type="tenant",
+                target_id=tenant.id,
+                details={
+                    "reason": "unknown_email",
+                    "organisation_code": request.organisation_code,
+                },
+            )
+            await db.commit()
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         if elapsed < LOGIN_DELAY.total_seconds():
             await asyncio.sleep(LOGIN_DELAY.total_seconds() - elapsed)
@@ -176,6 +241,20 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(session)
     await db.commit()
+    await db.refresh(session)
+
+    if user.tenant_id:
+        await write_audit_log(
+            db=db,
+            tenant_id=user.tenant_id,
+            actor_user_id=user.id,
+            actor_role=user.role,
+            action="login",
+            target_type="user",
+            target_id=user.id,
+            details={"organisation_code": request.organisation_code},
+        )
+        await db.commit()
 
     token = create_access_token(
         user_id=user.id,
@@ -227,6 +306,7 @@ async def refresh(
     )
     db.add(new_session)
     await db.commit()
+    await db.refresh(new_session)
 
     token = create_access_token(
         user_id=user.id,
@@ -266,126 +346,136 @@ async def logout(
         session.revoked_at = datetime.now(timezone.utc)
         await db.commit()
 
-    return MessageResponse(detail="Logged out")
+        if session.tenant_id:
+            await write_audit_log(
+                db=db,
+                tenant_id=session.tenant_id,
+                actor_user_id=session.user_id,
+                actor_role=payload.get("role", "unknown"),
+                action="logout",
+                target_type="session",
+                target_id=session.id,
+                details={},
+            )
+            await db.commit()
+
+    # ---------------------------------------------------------------------------
+    # VQ-301: password reset, consumed with a one-time code
+    # ---------------------------------------------------------------------------
+
+    # Every way this endpoint can fail produces this same status, this same body and
+    # at least this much elapsed time. The caller holds no session, so a difference
+    # in response is the only signal they get about whether a code exists, whether
+    # it was already used, or whether it has expired. There must not be one.
+    RESET_FAILURE_DETAIL = "Invalid or expired reset code"
+    RESET_MIN_ELAPSED = timedelta(milliseconds=200)
 
 
-# ---------------------------------------------------------------------------
-# VQ-301: password reset, consumed with a one-time code
-# ---------------------------------------------------------------------------
-
-# Every way this endpoint can fail produces this same status, this same body and
-# at least this much elapsed time. The caller holds no session, so a difference
-# in response is the only signal they get about whether a code exists, whether
-# it was already used, or whether it has expired. There must not be one.
-RESET_FAILURE_DETAIL = "Invalid or expired reset code"
-RESET_MIN_ELAPSED = timedelta(milliseconds=200)
-
-
-async def _reject_reset(started: datetime) -> None:
-    elapsed = datetime.now(timezone.utc) - started
-    if elapsed < RESET_MIN_ELAPSED:
-        await asyncio.sleep((RESET_MIN_ELAPSED - elapsed).total_seconds())
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=RESET_FAILURE_DETAIL,
-    )
-
-
-@router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(
-    request: ResetPasswordRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Set a new password using a one-time code issued by a Client Admin.
-
-    Unauthenticated by design: this is the path a locked-out user takes. The
-    code is the only credential presented.
-    """
-    started = datetime.now(timezone.utc)
-
-    # Checked before the code is looked at, so a weak password cannot be used to
-    # probe whether a code is real, and so a rejected password leaves the code
-    # unconsumed and still usable.
-    errors = validate_password_strength(request.new_password)
-    if errors:
+    async def _reject_reset(started: datetime) -> None:
+        elapsed = datetime.now(timezone.utc) - started
+        if elapsed < RESET_MIN_ELAPSED:
+            await asyncio.sleep((RESET_MIN_ELAPSED - elapsed).total_seconds())
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password does not meet the minimum requirements",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=RESET_FAILURE_DETAIL,
         )
 
-    code_hash = hashlib.sha256(request.code.encode("utf-8")).hexdigest()
 
-    # Grants exactly one capability to a no-context session: reading the row
-    # whose stored hash matches the hash the caller already holds.
-    await set_reset_code_context(db, code_hash)
-    result = await db.execute(
-        select(ResetCode).where(ResetCode.code_hash == code_hash)
-    )
-    reset_code = result.scalar_one_or_none()
-    if reset_code is None:
-        await _reject_reset(started)
+    @router.post("/reset-password", response_model=MessageResponse)
+    async def reset_password(
+        request: ResetPasswordRequest,
+        db: AsyncSession = Depends(get_db),
+    ):
+        """Set a new password using a one-time code issued by a Client Admin.
 
-    now = datetime.now(timezone.utc)
-    if reset_code.used_at is not None or reset_code.expires_at <= now:
-        await _reject_reset(started)
+        Unauthenticated by design: this is the path a locked-out user takes. The
+        code is the only credential presented.
+        """
+        started = datetime.now(timezone.utc)
 
-    # The context now comes from the row the code unlocked, never from the
-    # request. Without this, the user update below would run as a no-tenant
-    # session and RLS would silently match nothing.
-    await set_tenant_context(db, str(reset_code.tenant_id))
+        # Checked before the code is looked at, so a weak password cannot be used to
+        # probe whether a code is real, and so a rejected password leaves the code
+        # unconsumed and still usable.
+        errors = validate_password_strength(request.new_password)
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password does not meet the minimum requirements",
+            )
 
-    # Claim the code with one conditional statement. Reading `used_at` and then
-    # writing it would let two requests holding the same valid code both succeed;
-    # the WHERE clause makes the second one match zero rows.
-    claimed = await db.execute(
-        update(ResetCode)
-        .where(
-            ResetCode.id == reset_code.id,
-            ResetCode.used_at.is_(None),
-            ResetCode.expires_at > now,
+        code_hash = hashlib.sha256(request.code.encode("utf-8")).hexdigest()
+
+        # Grants exactly one capability to a no-context session: reading the row
+        # whose stored hash matches the hash the caller already holds.
+        await set_reset_code_context(db, code_hash)
+        result = await db.execute(
+            select(ResetCode).where(ResetCode.code_hash == code_hash)
         )
-        .values(used_at=now)
-        .returning(ResetCode.id)
-    )
-    if claimed.scalar_one_or_none() is None:
-        await db.rollback()
-        await _reject_reset(started)
+        reset_code = result.scalar_one_or_none()
+        if reset_code is None:
+            await _reject_reset(started)
 
-    result = await db.execute(select(User).where(User.id == reset_code.user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        await db.rollback()
-        await _reject_reset(started)
+        now = datetime.now(timezone.utc)
+        if reset_code.used_at is not None or reset_code.expires_at <= now:
+            await _reject_reset(started)
 
-    user.password_hash = hash_password(request.new_password)
-    # A reset is also the way out of a lockout, so the counter and the lock are
-    # cleared here. Leaving them would hand the user a valid new password that
-    # still cannot be used.
-    user.failed_login_attempts = 0
-    user.locked_until = None
+        # The context now comes from the row the code unlocked, never from the
+        # request. Without this, the user update below would run as a no-tenant
+        # session and RLS would silently match nothing.
+        await set_tenant_context(db, str(reset_code.tenant_id))
 
-    # Sign the account out everywhere. A password reset is the usual response to
-    # a suspected compromise; leaving old sessions alive would defeat that.
-    await db.execute(
-        update(Session)
-        .where(Session.user_id == user.id, Session.is_revoked == False)
-        .values(is_revoked=True, revoked_at=now)
-    )
-
-    db.add(
-        AuditLog(
-            tenant_id=user.tenant_id,
-            actor_user_id=user.id,
-            actor_role=user.role,
-            action="complete_password_reset",
-            target_type="user",
-            target_id=user.id,
-            details={"sessions_revoked": True},
+        # Claim the code with one conditional statement. Reading `used_at` and then
+        # writing it would let two requests holding the same valid code both succeed;
+        # the WHERE clause makes the second one match zero rows.
+        claimed = await db.execute(
+            update(ResetCode)
+            .where(
+                ResetCode.id == reset_code.id,
+                ResetCode.used_at.is_(None),
+                ResetCode.expires_at > now,
+            )
+            .values(used_at=now)
+            .returning(ResetCode.id)
         )
-    )
+        if claimed.scalar_one_or_none() is None:
+            await db.rollback()
+            await _reject_reset(started)
 
-    await db.commit()
+        result = await db.execute(select(User).where(User.id == reset_code.user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            await db.rollback()
+            await _reject_reset(started)
 
-    return MessageResponse(
-        detail="Password updated. All existing sessions have been signed out."
-    )
+        user.password_hash = hash_password(request.new_password)
+        # A reset is also the way out of a lockout, so the counter and the lock are
+        # cleared here. Leaving them would hand the user a valid new password that
+        # still cannot be used.
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+        # Sign the account out everywhere. A password reset is the usual response to
+        # a suspected compromise; leaving old sessions alive would defeat that.
+        await db.execute(
+            update(Session)
+            .where(Session.user_id == user.id, Session.is_revoked == False)
+            .values(is_revoked=True, revoked_at=now)
+        )
+
+        db.add(
+            AuditLog(
+                tenant_id=user.tenant_id,
+                actor_user_id=user.id,
+                actor_role=user.role,
+                action="complete_password_reset",
+                target_type="user",
+                target_id=user.id,
+                details={"sessions_revoked": True},
+            )
+        )
+
+        await db.commit()
+
+        return MessageResponse(
+            detail="Password updated. All existing sessions have been signed out."
+        )

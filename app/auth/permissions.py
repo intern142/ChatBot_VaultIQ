@@ -63,6 +63,9 @@ ROLE_MATRIX: dict[tuple[str, str], set[str]] = {
     ("GET", "/admin/platform/overview/{tenant_id}"): {"super_admin"},
     ("GET", "/admin/platform/health"): {"super_admin"},
     ("GET", "/admin/platform/stats"): {"super_admin"},
+
+    # Audit trail export — client_admin of their own tenant only
+    ("GET", "/audit/export"): {"client_admin"},
 }
 
 

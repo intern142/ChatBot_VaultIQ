@@ -3,7 +3,6 @@ import secrets
 import base64
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
-from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete, text
@@ -30,6 +29,7 @@ from app.schemas.tenant import (
     AuditLogResponse,
 )
 from app.config import get_settings
+from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_roles("super_admin"))])
 settings = get_settings()
@@ -80,6 +80,7 @@ async def create_tenant(
         short_code=request.short_code.upper(),
         name=request.name,
         storage_quota_mb=request.storage_quota_mb,
+        retention_days=request.retention_days,
         status=TenantStatus.active,
     )
     db.add(tenant)
@@ -117,6 +118,7 @@ async def create_tenant(
             "short_code": tenant.short_code,
             "name": tenant.name,
             "storage_quota_mb": tenant.storage_quota_mb,
+            "retention_days": tenant.retention_days,
         },
     )
 

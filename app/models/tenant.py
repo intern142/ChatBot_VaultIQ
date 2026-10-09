@@ -29,6 +29,7 @@ class Tenant(Base):
     knowledge_base_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=365)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

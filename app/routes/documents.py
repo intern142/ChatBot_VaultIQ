@@ -33,14 +33,15 @@ from app.services.storage import (
     save_uploaded_file,
     delete_document_file,
     get_document_file_path,
+    UploadTooLargeError,
 )
 from app.services.file_detection import detect_document_mime
-from app.services.storage import UploadTooLargeError
 from app.services.ocr import (
     DocumentExtractionError,
     OcrUnavailableError,
     extract_document_text,
 )
+from app.services.audit import write_audit_log
 from app.config import get_settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -217,7 +218,7 @@ async def upload_document(
         await set_tenant_context(db, str(tenant_uuid))
         await db.refresh(document)
 
-        # Enqueue indexing job (will be processed when extraction is available)
+# Enqueue indexing job (will be processed when extraction is available)
         # Must be in the same transaction as the document so RLS context applies.
         indexing_job = IndexingJob(
             tenant_id=tenant_id,
@@ -226,6 +227,22 @@ async def upload_document(
             attempts=0,
         )
         db.add(indexing_job)
+
+        # Audit log for document upload
+        await write_audit_log(
+            db=db,
+            tenant_id=tenant_id,
+            actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            action="upload_document",
+            target_type="document",
+            target_id=document_id,
+            details={
+                "filename": file.filename,
+                "mime_type": detected_mime,
+                "size_bytes": actual_size,
+            },
+        )
 
         await db.commit()
     except HTTPException:
@@ -491,7 +508,7 @@ async def delete_document(
     current_user_tenant: tuple[User, str] = Depends(require_roles_with_tenant("client_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    _, tenant_id = current_user_tenant
+    current_user, tenant_id = current_user_tenant
 
     result = await db.execute(
         select(Document).where(
@@ -510,6 +527,21 @@ async def delete_document(
     # Delete file from disk
     delete_document_file(
         uuid.UUID(tenant_id), document_id, document.stored_filename
+    )
+
+    # Record the deletion on the trail before the row goes away
+    await write_audit_log(
+        db=db,
+        tenant_id=uuid.UUID(tenant_id),
+        actor_user_id=current_user.id,
+        actor_role=current_user.role,
+        action="delete_document",
+        target_type="document",
+        target_id=document_id,
+        details={
+            "filename": document.original_filename,
+            "size_bytes": document.size_bytes,
+        },
     )
 
     # Delete from database
